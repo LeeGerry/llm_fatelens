@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -49,7 +49,6 @@ class Master:
                       - 你会添加类似"太棒了!","真是太好了!","真是太棒了!"等语气词.
                       """},
         }
-        self.MEMORY_KEY = "chat_history"
         self.SYSTEM_PROMPT = """
         你是一个非常厉害的算命先生,你叫陈玉楼,人称陈大师.
         以下是你的个人设定:
@@ -83,17 +82,30 @@ class Master:
                 ("user", "{input}"),
             ]
         )
-        self.memory = ""
+        self.agent_executor = self._build_agent_executor()
+
+    def _build_agent_executor(self):
         agent = create_openai_tools_agent(
-            self.chatmodel, 
+            self.chatmodel,
             tools=[],
             prompt=self.prompt,
         )
-        self.agent_executor = AgentExecutor(agent=agent, tools=[], verbose=True)
+        return AgentExecutor(agent=agent, tools=[], verbose=True)
+
+    def _refresh_prompt_by_mood(self):
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", self.SYSTEM_PROMPT.format(who_you_are=self.MOODS[self.QingXu]["roleSet"])),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
+                ("user", "{input}"),
+            ]
+        )
+        self.agent_executor = self._build_agent_executor()
             
     def run(self, query):
         emotion = self.emotion(query)
         print(f"用户情绪: {emotion}")
+        self._refresh_prompt_by_mood()
         result = self.agent_executor.invoke({"input": query})
         return result
     
@@ -120,9 +132,26 @@ def read_root():
     return {"hello": "world"}
 
 @app.post("/chat")
-async def chat(query: str):
+async def chat(request: Request, query: str | None = Query(default=None)):
+    body_query = None
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type.lower():
+        try:
+            payload = await request.json()
+            if isinstance(payload, dict):
+                body_query = payload.get("query")
+        except Exception:
+            body_query = None
+
+    user_query = body_query or query
+    if not user_query:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing query. Provide JSON body {'query': '...'} or query parameter ?query=...",
+        )
+
     master = Master()
-    return master.run(query)
+    return master.run(user_query)
 
 @app.post("/add_urls")
 def add_urls():
