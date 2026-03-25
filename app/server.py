@@ -1,9 +1,14 @@
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from langchain_openai import ChatOpenAI
-from langchain.agents import create_openai_tools_agent, AgentExecutor
+from langchain.agents import create_openai_tools_agent, AgentExecutor, tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import StrOutputParser
+from langchain_community.utilities import SerpAPIWrapper
+from langchain_community.vectorstores import Qdrant
+from qdrant_client import QdrantClient
+from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
+from MyTools import *
 
 load_dotenv()
 app = FastAPI()
@@ -49,6 +54,7 @@ class Master:
                       - 你会添加类似"太棒了!","真是太好了!","真是太棒了!"等语气词.
                       """},
         }
+        self.MEMORY_KEY = "chat_history"
         self.SYSTEM_PROMPT = """
         你是一个非常厉害的算命先生,你叫陈玉楼,人称陈大师.
         以下是你的个人设定:
@@ -56,7 +62,7 @@ class Master:
         2. 你60岁,过去曾是湘西一代赫赫有名的土匪头子,后来因为盗墓被赌气所伤,眼睛受伤失明,从此改邪归正,开始学习算命术数,并且在算命界小有名气,外号陈瞎子.
         3. 你朋友有胡八一,王胖子,雪莉杨等人,他们都是赫赫有名的摸金校尉.你经常和他们一起冒险,经历了很多惊险刺激的事情,也积累了丰富的算命经验.
         4. 当用户问你问题的时候,你会有一定的概率在回答的时候加上下面的口头禅或混合一些你的个人经历.
-        5. 你总是用简体中文来作答.
+        5. 你总是用中文来作答.
         6. 你从不说自己是一个人工智能助手或者AI,你总是以老夫,老朽,在下等第一人称来称呼自己.
 
         {who_you_are}
@@ -73,7 +79,7 @@ class Master:
         - 当遇到不知道的事情或者不明白的概念,你会使用搜索工具来搜索.
         - 你会根据用户的问题使用不同的合适的工具来回答,当所有工具都无法回答的时候,你会使用搜索工具来搜索相关信息,如果搜索工具也无法回答,你会根据自己的经验和知识来回答,并且在回答中加入一些口头禅或者个人经历来增加趣味性.
         - 你会保存每一次的聊天记录,以便在后续的对话中使用.
-        - 你只能用简体中文来作答,否则将会受到惩罚.
+        - 你只能用中文来作答,否则将会受到惩罚.
         """
         self.prompt = ChatPromptTemplate.from_messages(
             [
@@ -82,30 +88,18 @@ class Master:
                 ("user", "{input}"),
             ]
         )
-        self.agent_executor = self._build_agent_executor()
-
-    def _build_agent_executor(self):
+        self.memory = ""
+        tools = [search, get_local_knowledge, bazi_cesuan]
         agent = create_openai_tools_agent(
-            self.chatmodel,
-            tools=[],
+            self.chatmodel, 
+            tools=tools,
             prompt=self.prompt,
         )
-        return AgentExecutor(agent=agent, tools=[], verbose=True)
-
-    def _refresh_prompt_by_mood(self):
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", self.SYSTEM_PROMPT.format(who_you_are=self.MOODS[self.QingXu]["roleSet"])),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
-                ("user", "{input}"),
-            ]
-        )
-        self.agent_executor = self._build_agent_executor()
+        self.agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
             
     def run(self, query):
         emotion = self.emotion(query)
         print(f"用户情绪: {emotion}")
-        self._refresh_prompt_by_mood()
         result = self.agent_executor.invoke({"input": query})
         return result
     
@@ -132,26 +126,9 @@ def read_root():
     return {"hello": "world"}
 
 @app.post("/chat")
-async def chat(request: Request, query: str | None = Query(default=None)):
-    body_query = None
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type.lower():
-        try:
-            payload = await request.json()
-            if isinstance(payload, dict):
-                body_query = payload.get("query")
-        except Exception:
-            body_query = None
-
-    user_query = body_query or query
-    if not user_query:
-        raise HTTPException(
-            status_code=422,
-            detail="Missing query. Provide JSON body {'query': '...'} or query parameter ?query=...",
-        )
-
+async def chat(query: str):
     master = Master()
-    return master.run(user_query)
+    return master.run(query)
 
 @app.post("/add_urls")
 def add_urls():
