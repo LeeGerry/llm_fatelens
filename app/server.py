@@ -237,7 +237,7 @@ async def chat(query: str, background_tasks: BackgroundTasks):
     master = Master()
     msg = master.run(query)
     unique_id = str(uuid.uuid4())
-    background_tasks.add_task(master.background_voice_synthesis, msg, unique_id)
+    background_tasks.add_task(master.background_voice_synthesis, msg["output"], unique_id)
     return {"msg": msg, "id": unique_id}
 
 @app.post("/add_urls")
