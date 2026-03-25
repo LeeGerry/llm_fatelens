@@ -196,7 +196,9 @@ class Master:
         <speak version='1.0' xml:lang='zh-CN'
             xmlns:mstts='http://www.w3.org/2001/mstts'>
             <voice name='zh-CN-YunzeNeural'>
+                <mstts:express-as style='SeniorMale'>
                 {text}
+                </mstts:express-as>
             </voice>
         </speak>
         """
