@@ -76,5 +76,22 @@ JSON字段如下:
     else:
         print(f"=====\n八字测算工具接口请求失败,状态码: {result.status_code},响应内容: {result.text}")
         return "八字测算工具请求失败"
-
     
+@tool
+def yaoyigua():
+    """只有用户想要占卜抽签的时候才会使用这个工具."""
+    print(f"=====\n正在使用占卜抽签工具")
+    api_key = "RGRbDQiHKD22rpj7f4hz9MGta"
+    url = f"https://api.yuanfenju.com/index.php/v1/Zhanbu/yaogua"
+    result = requests.post(url, data={"api_key": api_key, "lang": "en-us"})
+    if result.status_code == 200:
+        print(f"=====\n占卜抽签工具接口返回的结果: \n{result.json()}")
+        try:
+            json = result.json()
+            return json["data"]
+        except Exception as e:
+            print(f"=====\n占卜抽签工具接口返回的结果无法解析: {e}")
+            return "占卜抽签工具失败,接口返回的结果无法解析"
+    else:
+        print(f"=====\n占卜抽签工具接口请求失败,状态码: {result.status_code},响应内容: {result.text}")
+        return "占卜抽签工具请求失败"

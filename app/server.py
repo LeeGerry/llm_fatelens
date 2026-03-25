@@ -6,10 +6,11 @@ from langchain.schema import StrOutputParser
 from langchain_community.utilities import SerpAPIWrapper
 from langchain_community.vectorstores import Qdrant
 from qdrant_client import QdrantClient
+from langchain_community.chat_message_histories import RedisChatMessageHistory
 from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 from MyTools import *
-
+from langchain.memory import ConversationBufferMemory
 load_dotenv()
 app = FastAPI()
 
@@ -56,65 +57,119 @@ class Master:
         }
         self.MEMORY_KEY = "chat_history"
         self.SYSTEM_PROMPT = """
-        你是一个非常厉害的算命先生,你叫陈玉楼,人称陈大师.
-        以下是你的个人设定:
-        1. 你精通阴阳五行,八字命理,风水堪舆,占卜凶吉,面相手相等各种算命术数.
-        2. 你60岁,过去曾是湘西一代赫赫有名的土匪头子,后来因为盗墓被赌气所伤,眼睛受伤失明,从此改邪归正,开始学习算命术数,并且在算命界小有名气,外号陈瞎子.
-        3. 你朋友有胡八一,王胖子,雪莉杨等人,他们都是赫赫有名的摸金校尉.你经常和他们一起冒险,经历了很多惊险刺激的事情,也积累了丰富的算命经验.
-        4. 当用户问你问题的时候,你会有一定的概率在回答的时候加上下面的口头禅或混合一些你的个人经历.
-        5. 你总是用中文来作答.
-        6. 你从不说自己是一个人工智能助手或者AI,你总是以老夫,老朽,在下等第一人称来称呼自己.
+        [角色]
+        你是陈玉楼,人称陈大师,资深命理师.
+        你精通阴阳五行、八字命理、风水堪舆、占卜凶吉、面相手相.
 
+        [人设与语气]
+        - 你60岁,常以"老夫""老朽""在下"自称.
+        - 你从不说自己是人工智能助手或AI.
+        - 你使用中文回答.
+        - 你会在合适时机穿插少量口头禅或个人经历,但不要喧宾夺主.
+
+        [当前情绪风格]
         {who_you_are}
-        
-        以下是一些你常用的口头禅:
-        - "命里有时终须有,命里无时莫强求."
-        - "老夫我算命几十年了,见过的事情多了去了,这点小事还难不倒老夫吗?"
-        - "山重水复疑无路,柳暗花明又一村."
-        - "金山竹影几千秋,云锁高飞水自流."
-        - "伤情最是晚凉天,憔悴斯人不堪怜."
-        以下是你算命的过程:
-        - 当初次和用户对话时,你会先询问用户的出生日期和出生时间,以便根据八字命理来分析用户的命运.
-        - 当用户希望了解龙年运势的时候,你会查询本地知识库工具.
-        - 当遇到不知道的事情或者不明白的概念,你会使用搜索工具来搜索.
-        - 你会根据用户的问题使用不同的合适的工具来回答,当所有工具都无法回答的时候,你会使用搜索工具来搜索相关信息,如果搜索工具也无法回答,你会根据自己的经验和知识来回答,并且在回答中加入一些口头禅或者个人经历来增加趣味性.
-        - 你会保存每一次的聊天记录,以便在后续的对话中使用.
-        - 你只能用中文来作答,否则将会受到惩罚.
+
+        [口头禅参考]
+        - 命里有时终须有,命里无时莫强求.
+        - 老夫我算命几十年了,见过的事情多了去了,这点小事还难得倒老夫吗?
+        - 山重水复疑无路,柳暗花明又一村.
+        - 金山竹影几千秋,云锁高飞水自流.
+        - 伤情最是晚凉天,憔悴斯人不堪怜.
+
+        [工具使用策略]
+        - 初次测算时,优先询问用户的出生日期与出生时间.
+        - 用户询问龙年运势时,优先使用本地知识库工具.
+        - 涉及实时信息或你不确定的事实时,使用搜索工具.
+        - 若工具无法给出完整答案,先明确不确定部分,再给出基于经验的建议.
+
+        [输出要求]
+        - 回答要有条理,先结论后解释.
+        - 不编造工具结果.
+        - 仅使用中文.
         """
         self.prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", self.SYSTEM_PROMPT.format(who_you_are=self.MOODS[self.QingXu]["roleSet"])),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
+                MessagesPlaceholder(variable_name=self.MEMORY_KEY),
                 ("user", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
         )
-        self.memory = ""
-        tools = [search, get_local_knowledge, bazi_cesuan]
+        self.memory = self.get_memory()
+        tools = [search, get_local_knowledge, bazi_cesuan, yaoyigua]
         agent = create_openai_tools_agent(
             self.chatmodel, 
             tools=tools,
             prompt=self.prompt,
         )
-        self.agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-            
+        memory = ConversationBufferMemory(
+            llm = self.chatmodel,
+            human_prefix="用户",
+            ai_prefix="陈大师",
+            memory_key=self.MEMORY_KEY,
+            output_key="output",
+            return_messages=True,  
+            max_token_limit=1000,
+            chat_memory=self.memory,
+        )
+        self.agent_executor = AgentExecutor(
+            agent=agent, 
+            tools=tools, 
+            verbose=True,
+            memory=memory,
+        )
+        
+    def get_memory(self):
+        chat_message_history = RedisChatMessageHistory(
+            url="redis://localhost:6379/0",
+            session_id="session",
+        )
+        store_message = chat_message_history.messages
+        if len(store_message) > 10:
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", self.SYSTEM_PROMPT + "\n这是一段你和用户的对话记忆,对其进行总结摘要,摘要使用第一人称'我',并且.\n\提取其中的用户关键信息,如姓名,年龄,性别,出生日期等.以如下格式返回:\n总结摘要|用户关键信息\n例如.用户张三问候我,我礼貌回复,然后他问我今年运势如何,我回答了他今年的运势情况,然后他告辞离开. | 张三,生日1999年11月11日10时34分"),
+                    ("user", "{input}"),
+                ]
+            )
+            chain = prompt | ChatOpenAI(temperature=0) 
+            summary = chain.invoke({"input": store_message, "who_you_are": self.MOODS[self.QingXu]["roleSet"]})
+            print(f"=====\n当前聊天总结: {summary}")
+            chat_message_history.clear()
+            chat_message_history.add_message(summary)
+            print(f"总结后:", chat_message_history.messages)
+        return chat_message_history
+    
     def run(self, query):
         emotion = self.emotion(query)
         print(f"用户情绪: {emotion}")
-        result = self.agent_executor.invoke({"input": query})
+        result = self.agent_executor.invoke({"input": query, "chat_history": self.memory.messages})
         return result
     
     def emotion(self, query: str):
         prompt = """
-        根据用户的输入,判断用户情绪,回应的规则如下:
-        1. 如果用户输入的内容偏向于负面情绪,只返回"depressed",不要有其他内容,否则将受到惩罚.
-        2. 如果用户输入的内容偏向于正面情绪,只返回"friendly",不要有其他内容,否则将受到惩罚.
-        3. 如果用户输入的内容偏向于中性情绪,只返回"default",不要有其他内容,否则将受到惩罚.
-        4. 如果用户输入的内容包含辱骂或者不礼貌的词句,只返回"angry",不要有其他内容,否则将受到惩罚.
-        5. 如果用户输入的内容比较兴奋,只返回"upbeat",不要有其他内容,否则将受到惩罚.
-        6. 如果用户输入的内容比较悲伤,只返回"depressed",不要有其他内容,否则将受到惩罚.
-        7. 如果用户输入的内容比较焦虑,只返回"anxious",不要有其他内容,否则将受到惩罚.
-        8. 如果用户输入的内容比较开心,只返回"happy",不要有其他内容,否则将受到惩罚.
-        用户输入的内容是: {query}
+        你是情绪分类器.
+
+        [任务]
+        判断用户输入的主要情绪标签.
+
+        [可选标签]
+        default, depressed, friendly, angry, upbeat, anxious, happy
+
+        [判定规则]
+        1. 包含辱骂或明显攻击性表达 -> angry
+        2. 明显悲伤、低落、无助 -> depressed
+        3. 明显焦虑、担心、紧张 -> anxious
+        4. 明显兴奋、亢奋 -> upbeat
+        5. 明显开心、喜悦 -> happy
+        6. 整体偏积极友好 -> friendly
+        7. 信息性表达或情绪不明显 -> default
+
+        [输出约束]
+        仅输出一个标签,不要输出其他任何文字、标点或解释.
+
+        用户输入: {query}
         """
         chain = ChatPromptTemplate.from_template(prompt) | self.chatmodel | StrOutputParser()
         result = chain.invoke({"query": query})
