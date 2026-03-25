@@ -185,11 +185,47 @@ class Master:
     
     async def get_voice(self, text:str, uid: str):
         print("text2speech", text)
+        headers = {
+            "Ocp-Apim-Subscription-Key": os.getenv("AZURE_VOICE_KEY"),
+            "Content-Type": "application/ssml+xml",
+            "X-Microsoft-OutputFormat": "audio-16khz-32kbitrate-mono-mp3",
+            "User-Agent": "TomieBot",
+        }
+
+        body = f"""
+        <speak version='1.0' xml:lang='zh-CN'
+            xmlns:mstts='http://www.w3.org/2001/mstts'>
+            <voice name='zh-CN-YunzeNeural'>
+                {text}
+            </voice>
+        </speak>
+        """
+
+        response = requests.post(
+            "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1",
+            headers=headers,
+            data=body.encode("utf-8"),
+        )
+
+        print(response.status_code)
+        print("content length:", len(response.content))
+        if (response.status_code == 200):
+            output_dir = "voices"
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, f"{uid}.mp3")
+            with open(output_path, "wb") as audio_file:
+                audio_file.write(response.content)
+            print(f"语音合成成功,文件路径: {output_path}")
+        else:
+            print(f"语音合成失败,状态码: {response.status_code}, 响应内容: {response.text}")
         pass
     
     def background_voice_synthesis(self, text:str, uid: str):
         # 这个函数不需要返回值,只负责语音合成
-        asyncio.run(self.get_voice(text, uid))
+        try:
+            asyncio.run(self.get_voice(text, uid))
+        except Exception as e:
+            print(f"后台语音合成失败: {e}")
         pass
     
 @app.get("/")
