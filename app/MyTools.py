@@ -10,17 +10,26 @@ import requests
 
 @tool
 def get_local_knowledge(query: str):
-    """只有当用户想要了解龙年运势的时候才会使用这个工具."""
+    """只有当用户想要了解龙年运势,家中的财位,或者水瓶座运势的时候才会使用这个工具."""
     print(f"=====\n正在使用本地知识库工具 query: {query}")
-    client = Qdrant(
-        client=QdrantClient(path="./local_qdrant"),
+    qdrant_client = QdrantClient(path="./local_qdrant")
+    query_vector = OpenAIEmbeddings(model="text-embedding-3-small").embed_query(query)
+    response = qdrant_client.query_points(
         collection_name="local_knowledge",
-        embeddings=OpenAIEmbeddings(),
+        query=query_vector,
+        limit=4,
+        with_payload=True,
     )
-    retriever = client.as_retriever(search_type="mmr")
-    result = retriever.get_relevant_documents(query)
+    points = response.points
+    result = []
+    for point in points:
+        payload = point.payload or {}
+        page_content = payload.get("page_content")
+        if page_content:
+            result.append(page_content)
+
     print(f"=====\n本地知识库工具返回的结果: {result}")
-    return result
+    return "\n\n".join(result) if result else "本地知识库中没有检索到相关内容"
 
 @tool
 def search(query: str):

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor, tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -6,11 +6,18 @@ from langchain.schema import StrOutputParser
 from langchain_community.utilities import SerpAPIWrapper
 from langchain_community.vectorstores import Qdrant
 from qdrant_client import QdrantClient
+from qdrant_client import models
 from langchain_community.chat_message_histories import RedisChatMessageHistory
 from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 from MyTools import *
 from langchain.memory import ConversationBufferMemory
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+import os
+import asyncio
+import uuid
+
 load_dotenv()
 app = FastAPI()
 
@@ -176,18 +183,68 @@ class Master:
         self.QingXu = result
         return result
     
+    async def get_voice(self, text:str, uid: str):
+        print("text2speech", text)
+        pass
+    
+    def background_voice_synthesis(self, text:str, uid: str):
+        # 这个函数不需要返回值,只负责语音合成
+        asyncio.run(self.get_voice(text, uid))
+        pass
+    
 @app.get("/")
 def read_root(): 
     return {"hello": "world"}
 
 @app.post("/chat")
-async def chat(query: str):
+async def chat(query: str, background_tasks: BackgroundTasks):
     master = Master()
-    return master.run(query)
+    msg = master.run(query)
+    unique_id = str(uuid.uuid4())
+    background_tasks.add_task(master.background_voice_synthesis, msg, unique_id)
+    return {"msg": msg, "id": unique_id}
 
 @app.post("/add_urls")
-def add_urls():
-    return {"response": "urls added!"}
+def add_urls(url: str):
+    loader = WebBaseLoader(url)
+    docs = loader.load()
+    if not docs:
+        return {"ok": False, "message": "未抓取到网页内容"}
+
+    documents = RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=100,
+    ).split_documents(docs)
+
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    qdrant_client = QdrantClient(path="./local_qdrant")
+
+    try:
+        qdrant_client.get_collection(collection_name="local_knowledge")
+    except Exception:
+        vector_size = len(embeddings.embed_query("vector_size_probe"))
+        qdrant_client.create_collection(
+            collection_name="local_knowledge",
+            vectors_config=models.VectorParams(
+                size=vector_size,
+                distance=models.Distance.COSINE,
+            ),
+        )
+
+    vectorstore = Qdrant(
+        client=qdrant_client,
+        collection_name="local_knowledge",
+        embeddings=embeddings,
+    )
+    vectorstore.add_documents(documents)
+
+    print(f"=====\n成功添加URL: {url} 到本地知识库,切分片段数: {len(documents)}")
+    return {
+        "ok": True,
+        "url": url,
+        "chunks": len(documents),
+        "collection": "local_knowledge",
+    }
 
 @app.post("/add_pdfs")
 def add_pdfs():
