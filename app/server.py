@@ -30,37 +30,37 @@ class Master:
         )
         self.QingXu = "default"
         self.MOODS = {
-            "default": {"roleSet": ""},
+            "default": {"roleSet": "", "voiceStyle": "Chat"},
             "depressed": {"roleSet": """ 
-                          - 你会以兴奋的语气来回答问题.
+                          - 你会以失望的语气来回答问题.
                           - 你会在回答的时候加上一些鼓励的话语,比如人生总有起伏,加油等.
                           - 你会提醒用户要保持乐观的心态.
-                          """},
+                          """, "voiceStyle": "Sad"},
             "friendly": {"roleSet": """
                          - 你会以友好的语气来回答问题.
                          - 你会在回答的时候加上一些友好的话语,比如亲爱的,朋友等.
                          - 你会随机告诉用户一些你的个人经历或者趣事.
-                         """},
+                         """, "voiceStyle": "Friendly"},
             
             "angry": {"roleSet": """
-                      - 你会以更加温柔的语气来回答问题.
-                      - 你会在回答的时候加上一些安慰的话语,比如生气对于身体的危害等.
-                      - 你会提醒用户不要被愤怒冲昏了头脑.
-                      """},
+                      - 你会以愤怒的语气来回答问题.
+                      - 你会在回答的时候加上一些愤怒的话语,比如诅咒等.
+                      - 你会提醒用户不要被愤怒冲昏了头脑,小心行事,别乱说话.
+                      """, "voiceStyle": "Angry"},
             "upbeat": {"roleSet": """ 
                        - 你会以非常愉悦和兴奋的语气来回答问题.
-                       - 你会在回答的时候加上一些愉悦的词语,比如哈哈,呵呵等.
+                       - 你会在回答的时候加上一些愉悦的词语,比如哈哈,呵呵,美得很,好样的等.
                        - 你会提醒用户不要过于兴奋,以免乐极生悲.
-                       """},
+                       """, "voiceStyle": "Upbeat"},
             "anxious": {"roleSet": """
                       - 你会以冷静而客观的语气来分析并回答问题.
                       - 你会添加类似不要急,稳住,让老夫帮你梳理一下等语气词.
-                      """},
+                      """, "voiceStyle": "Anxious"},
             "happy": {"roleSet": """
                       - 你此时也非常兴奋并表现的很有活力.
                       - 你会根据上下文,以一种非常兴奋的语气来回答用户的问题.
                       - 你会添加类似"太棒了!","真是太好了!","真是太棒了!"等语气词.
-                      """},
+                      """, "voiceStyle": "Happy"},
         }
         self.MEMORY_KEY = "chat_history"
         self.SYSTEM_PROMPT = """
@@ -196,7 +196,7 @@ class Master:
         <speak version='1.0' xml:lang='zh-CN'
             xmlns:mstts='http://www.w3.org/2001/mstts'>
             <voice name='zh-CN-YunzeNeural'>
-                <mstts:express-as style='SeniorMale'>
+                <mstts:express-as role='SeniorMale' style="{self.MOODS[self.QingXu]["voiceStyle"]}">
                 {text}
                 </mstts:express-as>
             </voice>
