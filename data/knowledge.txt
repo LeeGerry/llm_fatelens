@@ -1,5 +1,0 @@
-Our digital human system supports voice interaction, memory, and tool calling.
-The robot platform can include a camera, microphone, speaker, and wheels.
-RAG helps the model answer based on private knowledge.
-FastAPI can be used to serve chat APIs and streaming responses.
-Android interview covers leetcode, deep dive, bq, system design and write app.

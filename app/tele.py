@@ -4,24 +4,28 @@ import urllib.parse
 import json
 import os
 import asyncio
+from dotenv import load_dotenv
 
-bot = telebot.TeleBot('8748148828:AAFWJAe2HxBm7T1qZqH2w_asMUuoac3TZBA')
+load_dotenv()
+
+bot = telebot.TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+VOICE_DIR = os.path.join(PROJECT_ROOT, "voices")
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "你好,我是陈瞎子,专门算命测八字的,请问你想算什么?")
-    
+    bot.send_message(message.chat.id, "你好,我是陈瞎子,专门算命测八字,请问你想算什么?")
 
 @bot.message_handler(func=lambda message: True)
 def echo_all(message):
     try:
         encoded_text = urllib.parse.quote(message.text)
-        response = requests.post(f"http://localhost:8000/chat?query={encoded_text}", timeout = 5000)
+        response = requests.post(f"http://localhost:8000/chat?query={encoded_text}", timeout = 30)
         if response.status_code == 200:
             aisay = json.loads(response.text)
             if "msg" in aisay:
                 bot.reply_to(message, aisay["msg"]["output"])
-                audio_path = f"../voices/{aisay['id']}.mp3"
+                audio_path = os.path.join(VOICE_DIR, f"{aisay['id']}.mp3")
                 asyncio.run(check_audio(message, audio_path))
         else:
             bot.reply_to(message, "请求出错了哦,请稍后再试.")  
