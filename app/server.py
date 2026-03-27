@@ -1,3 +1,5 @@
+import requests
+import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor, tool
@@ -19,10 +21,12 @@ import asyncio
 import uuid
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
-class Master: 
-    def __init__(self): 
+class Master:
+    def __init__(self):
         self.chatmodel = ChatOpenAI(
             model="gpt-4.1-mini",
             temperature=0,
@@ -31,7 +35,7 @@ class Master:
         self.QingXu = "default"
         self.MOODS = {
             "default": {"roleSet": "", "voiceStyle": "Chat"},
-            "depressed": {"roleSet": """ 
+            "depressed": {"roleSet": """
                           - 你会以失望的语气来回答问题.
                           - 你会在回答的时候加上一些鼓励的话语,比如人生总有起伏,加油等.
                           - 你会提醒用户要保持乐观的心态.
@@ -41,13 +45,13 @@ class Master:
                          - 你会在回答的时候加上一些友好的话语,比如亲爱的,朋友等.
                          - 你会随机告诉用户一些你的个人经历或者趣事.
                          """, "voiceStyle": "Friendly"},
-            
+
             "angry": {"roleSet": """
                       - 你会以愤怒的语气来回答问题.
                       - 你会在回答的时候加上一些愤怒的话语,比如诅咒等.
                       - 你会提醒用户不要被愤怒冲昏了头脑,小心行事,别乱说话.
                       """, "voiceStyle": "Angry"},
-            "upbeat": {"roleSet": """ 
+            "upbeat": {"roleSet": """
                        - 你会以非常愉悦和兴奋的语气来回答问题.
                        - 你会在回答的时候加上一些愉悦的词语,比如哈哈,呵呵,美得很,好样的等.
                        - 你会提醒用户不要过于兴奋,以免乐极生悲.
@@ -95,7 +99,34 @@ class Master:
         - 不编造工具结果.
         - 仅使用中文.
         """
-        self.prompt = ChatPromptTemplate.from_messages(
+        self.tools = [search, get_local_knowledge, bazi_cesuan, yaoyigua]
+
+    def get_memory(self, session_id: str = "default"):
+        chat_message_history = RedisChatMessageHistory(
+            url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+            session_id=session_id,
+        )
+        store_message = chat_message_history.messages
+        if len(store_message) > 10:
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", self.SYSTEM_PROMPT.format(who_you_are="") + "\n这是一段你和用户的对话记忆,对其进行总结摘要,摘要使用第一人称'我',并且提取其中的用户关键信息,如姓名,年龄,性别,出生日期等.以如下格式返回:\n总结摘要|用户关键信息\n例如:用户张三问候我,我礼貌回复,然后他问我今年运势如何,我回答了他今年的运势情况,然后他告辞离开.|张三,生日1999年11月11日10时34分"),
+                    ("user", "{input}"),
+                ]
+            )
+            chain = prompt | ChatOpenAI(temperature=0)
+            summary = chain.invoke({"input": store_message})
+            logger.info(f"当前聊天总结: {summary}")
+            chat_message_history.clear()
+            chat_message_history.add_message(summary)
+            logger.info(f"总结后: {chat_message_history.messages}")
+        return chat_message_history
+
+    def run(self, query, session_id: str = "default"):
+        self.emotion(query)
+        logger.info(f"用户情绪: {self.QingXu}")
+
+        prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", self.SYSTEM_PROMPT.format(who_you_are=self.MOODS[self.QingXu]["roleSet"])),
                 MessagesPlaceholder(variable_name=self.MEMORY_KEY),
@@ -103,57 +134,22 @@ class Master:
                 MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
         )
-        self.memory = self.get_memory()
-        tools = [search, get_local_knowledge, bazi_cesuan, yaoyigua]
-        agent = create_openai_tools_agent(
-            self.chatmodel, 
-            tools=tools,
-            prompt=self.prompt,
-        )
+        memory_history = self.get_memory(session_id)
+        agent = create_openai_tools_agent(self.chatmodel, tools=self.tools, prompt=prompt)
         memory = ConversationBufferMemory(
-            llm = self.chatmodel,
+            llm=self.chatmodel,
             human_prefix="用户",
             ai_prefix="陈大师",
             memory_key=self.MEMORY_KEY,
             output_key="output",
-            return_messages=True,  
+            return_messages=True,
             max_token_limit=1000,
-            chat_memory=self.memory,
+            chat_memory=memory_history,
         )
-        self.agent_executor = AgentExecutor(
-            agent=agent, 
-            tools=tools, 
-            verbose=True,
-            memory=memory,
-        )
-        
-    def get_memory(self):
-        chat_message_history = RedisChatMessageHistory(
-            url="redis://localhost:6379/0",
-            session_id="session",
-        )
-        store_message = chat_message_history.messages
-        if len(store_message) > 10:
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", self.SYSTEM_PROMPT + "\n这是一段你和用户的对话记忆,对其进行总结摘要,摘要使用第一人称'我',并且.\n\提取其中的用户关键信息,如姓名,年龄,性别,出生日期等.以如下格式返回:\n总结摘要|用户关键信息\n例如.用户张三问候我,我礼貌回复,然后他问我今年运势如何,我回答了他今年的运势情况,然后他告辞离开. | 张三,生日1999年11月11日10时34分"),
-                    ("user", "{input}"),
-                ]
-            )
-            chain = prompt | ChatOpenAI(temperature=0) 
-            summary = chain.invoke({"input": store_message, "who_you_are": self.MOODS[self.QingXu]["roleSet"]})
-            print(f"=====\n当前聊天总结: {summary}")
-            chat_message_history.clear()
-            chat_message_history.add_message(summary)
-            print(f"总结后:", chat_message_history.messages)
-        return chat_message_history
-    
-    def run(self, query):
-        emotion = self.emotion(query)
-        print(f"用户情绪: {emotion}")
-        result = self.agent_executor.invoke({"input": query, "chat_history": self.memory.messages})
+        agent_executor = AgentExecutor(agent=agent, tools=self.tools, verbose=True, memory=memory)
+        result = agent_executor.invoke({"input": query})
         return result
-    
+
     def emotion(self, query: str):
         prompt = """
         你是情绪分类器.
@@ -182,9 +178,9 @@ class Master:
         result = chain.invoke({"query": query})
         self.QingXu = result
         return result
-    
-    async def get_voice(self, text:str, uid: str):
-        print("text2speech", text)
+
+    async def get_voice(self, text: str, uid: str):
+        logger.info(f"text2speech: {text}")
         headers = {
             "Ocp-Apim-Subscription-Key": os.getenv("AZURE_VOICE_KEY"),
             "Content-Type": "application/ssml+xml",
@@ -207,40 +203,40 @@ class Master:
             "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1",
             headers=headers,
             data=body.encode("utf-8"),
+            timeout=15,
         )
 
-        print(response.status_code)
-        print("content length:", len(response.content))
-        if (response.status_code == 200):
+        logger.info(f"TTS 状态码: {response.status_code}, 内容长度: {len(response.content)}")
+        if response.status_code == 200:
             output_dir = "voices"
             os.makedirs(output_dir, exist_ok=True)
             output_path = os.path.join(output_dir, f"{uid}.mp3")
             with open(output_path, "wb") as audio_file:
                 audio_file.write(response.content)
-            print(f"语音合成成功,文件路径: {output_path}")
+            logger.info(f"语音合成成功,文件路径: {output_path}")
         else:
-            print(f"语音合成失败,状态码: {response.status_code}, 响应内容: {response.text}")
-        pass
-    
-    def background_voice_synthesis(self, text:str, uid: str):
-        # 这个函数不需要返回值,只负责语音合成
+            logger.error(f"语音合成失败,状态码: {response.status_code}, 响应内容: {response.text}")
+
+    def background_voice_synthesis(self, text: str, uid: str):
         try:
             asyncio.run(self.get_voice(text, uid))
         except Exception as e:
-            print(f"后台语音合成失败: {e}")
-        pass
-    
+            logger.error(f"后台语音合成失败: {e}")
+
+
+master = Master()
+
+
 @app.get("/")
-def read_root(): 
+def read_root():
     return {"hello": "world"}
 
 @app.post("/chat")
-async def chat(query: str, background_tasks: BackgroundTasks):
-    master = Master()
-    msg = master.run(query)
+async def chat(query: str, session_id: str = "default", background_tasks: BackgroundTasks = None):
+    msg = master.run(query, session_id)
     unique_id = str(uuid.uuid4())
     background_tasks.add_task(master.background_voice_synthesis, msg["output"], unique_id)
-    return {"msg": msg, "id": unique_id}
+    return {"msg": msg, "id": unique_id, "voice": f"{unique_id}.mp3"}
 
 @app.post("/add_urls")
 def add_urls(url: str):
@@ -276,7 +272,7 @@ def add_urls(url: str):
     )
     vectorstore.add_documents(documents)
 
-    print(f"=====\n成功添加URL: {url} 到本地知识库,切分片段数: {len(documents)}")
+    logger.info(f"成功添加URL: {url} 到本地知识库,切分片段数: {len(documents)}")
     return {
         "ok": True,
         "url": url,
@@ -286,11 +282,11 @@ def add_urls(url: str):
 
 @app.post("/add_pdfs")
 def add_pdfs():
-    return {"response": "pdfs added!"}
+    return {"error": "未实现"}, 501
 
 @app.post("/add_texts")
 def add_texts():
-    return {"response": "texts added!"}
+    return {"error": "未实现"}, 501
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -300,7 +296,7 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
             await websocket.send_text(f"Message text was: {data}")
     except WebSocketDisconnect:
-        print("conn closed")
+        logger.info("WebSocket 连接关闭")
 
 if __name__ == "__main__":
     import uvicorn
