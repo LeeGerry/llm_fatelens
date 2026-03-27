@@ -6,6 +6,7 @@ import os
 import asyncio
 import logging
 from dotenv import load_dotenv
+from config import SERVER_CHAT_URL, TELEGRAM_START_MSG, MAX_AUDIO_WAIT, VOICE_OUTPUT_DIR
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -13,12 +14,11 @@ logger = logging.getLogger(__name__)
 
 bot = telebot.TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VOICE_DIR = os.path.join(PROJECT_ROOT, "voices")
-MAX_AUDIO_WAIT = 60  # 最多等待 60 秒
+VOICE_DIR = os.path.join(PROJECT_ROOT, VOICE_OUTPUT_DIR)
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "你好,我是陈瞎子,专门算命测八字,请问你想算什么?")
+    bot.send_message(message.chat.id, TELEGRAM_START_MSG)
 
 @bot.message_handler(func=lambda message: True)
 def echo_all(message):
@@ -26,7 +26,7 @@ def echo_all(message):
         encoded_text = urllib.parse.quote(message.text)
         session_id = str(message.chat.id)
         response = requests.post(
-            f"http://localhost:8000/chat?query={encoded_text}&session_id={session_id}",
+            f"{SERVER_CHAT_URL}?query={encoded_text}&session_id={session_id}",
             timeout=30,
         )
         if response.status_code == 200:

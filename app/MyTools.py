@@ -10,6 +10,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from dotenv import load_dotenv
+from prompts import BAZI_PARAM_PROMPT
+from config import YUANFENJU_BAZI_URL, YUANFENJU_YAOGUA_URL
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -54,29 +56,9 @@ def bazi_cesuan(query: str):
     """八字测算工具,这个工具需要输入用户姓名和出生年月日时,如果缺少用户姓名和出生年月日时,则不可用."""
     logger.info(f"正在使用八字测算工具 query: {query}")
     api_key = os.getenv("YUANFENJU_API_KEY", "")
-    prompt = ChatPromptTemplate.from_template(
-    """
-你是一个参数查询助手,根据用户输入内容找出相关的参数并按JSON格式返回.
-JSON字段如下:
-'api_key': '{api_key}',
-'name': '姓名,例如:张三',
-'sex': '性别,0表示男,1表示女,根据姓名判断性别',
-'type': '日历类型,0农历,1公历,默认1',
-'year': '出生年份,例如:1988',
-'month': '出生月份,例如:11',
-'day': '出生日,例如:8',
-'hours': '出生小时,例如:12',
-'minute': '出生分钟,例如:20',
-'zhen': '出生时辰,例如:1,这个非必须参数',
-'province': '出生省份,例如:北京市,这个非必须参数',
-'city': '出生城市,例如:北京市,这个非必须参数',
-\n
-如果没有找到相关参数,则需要提醒用户告诉你这些内容,只返回数据结构,不要有其他的评论.
-用户输入的内容是: {{query}}
-    """
-    )
+    prompt = ChatPromptTemplate.from_template(BAZI_PARAM_PROMPT)
     parser = JsonOutputParser()
-    url = f"https://api.yuanfenju.com/index.php/v1/Bazi/cesuan?api_key={api_key}"
+    url = f"{YUANFENJU_BAZI_URL}?api_key={api_key}"
     prompt = prompt.partial(format_instructions=parser.get_format_instructions(), api_key=api_key)
     chain = prompt | ChatOpenAI(temperature=0) | parser
     data = chain.invoke({"query": query})
@@ -103,9 +85,8 @@ def yaoyigua():
     """只有用户想要占卜抽签的时候才会使用这个工具."""
     logger.info("正在使用占卜抽签工具")
     api_key = os.getenv("YUANFENJU_API_KEY", "")
-    url = "https://api.yuanfenju.com/index.php/v1/Zhanbu/yaogua"
     try:
-        result = requests.post(url, data={"api_key": api_key, "lang": "zh-cn"}, timeout=10)
+        result = requests.post(YUANFENJU_YAOGUA_URL, data={"api_key": api_key, "lang": "zh-cn"}, timeout=10)
         if result.status_code == 200:
             logger.info(f"占卜抽签工具接口返回的结果: {result.json()}")
             try:
