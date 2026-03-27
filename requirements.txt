@@ -4,8 +4,8 @@ langchain_openai==0.0.5
 langchain_community==0.0.25
 langchain==0.1.10
 redis==5.0.1
-qdrant_client==1.7.1
+qdrant_client==1.17.1
 uvicorn==0.23.2
-pyTelegramBotAPI
-python-dotenv
-requests
+pyTelegramBotAPI==4.17.0
+python-dotenv==1.0.1
+requests==2.31.0
