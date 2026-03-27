@@ -1,0 +1,33 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  server:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./local_qdrant:/app/local_qdrant
+      - voices:/app/voices
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  bot:
+    build: .
+    command: python app/tele.py
+    env_file: .env
+    environment:
+      - SERVER_URL=http://server:8000
+    volumes:
+      - voices:/app/voices
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  voices:

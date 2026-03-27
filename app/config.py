@@ -1,4 +1,5 @@
 # URL 地址与常量配置
+import os
 
 # Azure TTS
 AZURE_TTS_URL = "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1"
@@ -18,8 +19,8 @@ SSML_TEMPLATE = """
 YUANFENJU_BAZI_URL = "https://api.yuanfenju.com/index.php/v1/Bazi/cesuan"
 YUANFENJU_YAOGUA_URL = "https://api.yuanfenju.com/index.php/v1/Zhanbu/yaogua"
 
-# 本地服务端
-SERVER_CHAT_URL = "http://localhost:8000/chat"
+# 本地服务端（Docker 环境通过 SERVER_URL 环境变量覆盖，如 http://server:8000）
+SERVER_CHAT_URL = os.getenv("SERVER_URL", "http://localhost:8000") + "/chat"
 
 # Telegram Bot
 TELEGRAM_START_MSG = "你好,我是陈瞎子,专门算命测八字,请问你想算什么?"
