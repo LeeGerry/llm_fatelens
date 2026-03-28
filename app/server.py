@@ -4,7 +4,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor, tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser
 from langchain_community.utilities import SerpAPIWrapper
 from langchain_community.vectorstores import Qdrant
 from qdrant_client import QdrantClient
