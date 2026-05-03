@@ -16,7 +16,7 @@ import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 
 import { Composer } from "./src/components/Composer";
 import { MessageBubble } from "./src/components/MessageBubble";
-import { getAudioStatus, sendChat } from "./src/api/client";
+import { getAudioStatus, getAudioUrl, sendChat } from "./src/api/client";
 import type { ChatMessage } from "./src/types/chat";
 import { createSessionId } from "./src/utils/session";
 
@@ -124,25 +124,31 @@ export default function App() {
     setStreaming(false);
   }
 
-  async function pollAudio(messageId: string, statusUrl: string) {
-    for (let i = 0; i < 12; i += 1) {
+  async function pollAudio(messageId: string) {
+    for (let i = 0; i < 24; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2500));
       try {
-        const status = await getAudioStatus(statusUrl);
+        const status = await getAudioStatus(messageId);
         if (status.status === "ready") {
           setMessages((current) =>
             current.map((message) =>
               message.id === messageId
-                ? { ...message, audioStatus: "ready", audioUrl: status.audio_url }
+                ? { ...message, audioStatus: "ready", audioUrl: status.audio_url ?? getAudioUrl(messageId) }
                 : message,
             ),
           );
           return;
         }
       } catch {
-        return;
+        // Keep polling; local Wi-Fi can briefly drop during Expo Go reloads.
       }
     }
+
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId ? { ...message, audioStatus: "failed" } : message,
+      ),
+    );
   }
 
   async function handleSend() {
@@ -186,7 +192,7 @@ export default function App() {
       setLoading(false);
 
       if (response.audio_status_url) {
-        void pollAudio(response.message_id, response.audio_status_url);
+        void pollAudio(response.message_id);
       }
       await streamReply(response.message_id, response.reply);
     } catch (e) {

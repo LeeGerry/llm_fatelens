@@ -40,10 +40,18 @@ export async function sendChat(message: string, sessionId: string): Promise<Chat
   return response.json();
 }
 
-export async function getAudioStatus(statusUrl: string): Promise<AudioStatusResponse> {
-  const response = await fetch(statusUrl);
+export function getAudioUrl(audioId: string) {
+  return `${getApiBaseUrl()}/voices/${audioId}.mp3`;
+}
+
+export async function getAudioStatus(audioId: string): Promise<AudioStatusResponse> {
+  const response = await fetch(`${getApiBaseUrl()}/audio/${audioId}/status`);
   if (!response.ok) {
     throw new Error(`Audio status failed: ${response.status}`);
   }
-  return response.json();
+  const status: AudioStatusResponse = await response.json();
+  return {
+    ...status,
+    audio_url: getAudioUrl(audioId),
+  };
 }

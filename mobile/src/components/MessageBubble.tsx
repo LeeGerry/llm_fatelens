@@ -1,6 +1,7 @@
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+import { AudioPlayButton } from "./AudioPlayButton";
 import type { ChatMessage } from "../types/chat";
 
 type Props = {
@@ -24,16 +25,13 @@ export function MessageBubble({ message }: Props) {
                 <Text style={styles.metaText}>语音生成中</Text>
               </View>
             ) : null}
-            {canPlay ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => Linking.openURL(message.audioUrl as string)}
-                style={styles.audioButton}
-              >
-                <Ionicons name="play" size={14} color="#ffffff" />
-                <Text style={styles.audioButtonText}>播放语音</Text>
-              </Pressable>
+            {message.audioStatus === "failed" ? (
+              <View style={styles.audioPending}>
+                <Ionicons name="alert-circle-outline" size={14} color="#a1352d" />
+                <Text style={styles.errorMetaText}>语音暂不可用</Text>
+              </View>
             ) : null}
+            {canPlay ? <AudioPlayButton url={message.audioUrl as string} /> : null}
           </View>
         )}
       </View>
@@ -87,23 +85,13 @@ const styles = StyleSheet.create({
     color: "#7b6b57",
     fontSize: 12,
   },
+  errorMetaText: {
+    color: "#a1352d",
+    fontSize: 12,
+  },
   audioPending: {
     alignItems: "center",
     flexDirection: "row",
     gap: 4,
-  },
-  audioButton: {
-    alignItems: "center",
-    backgroundColor: "#8d3f2d",
-    borderRadius: 6,
-    flexDirection: "row",
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  audioButtonText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "700",
   },
 });
