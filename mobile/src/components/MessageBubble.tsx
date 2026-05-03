@@ -23,7 +23,7 @@ export function MessageBubble({ message }: Props) {
         )}
         {!isUser && (
           <View style={styles.metaRow}>
-            {message.mood ? <Text style={styles.metaText}>{message.mood}</Text> : null}
+            {message.mood ? <Text style={styles.metaText}>[{message.mood}]</Text> : null}
             {message.audioStatus === "pending" ? (
               <View style={styles.audioPending}>
                 <Ionicons name="time-outline" size={14} color="#7b6b57" />
