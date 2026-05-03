@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -18,7 +18,8 @@ import { Composer } from "./src/components/Composer";
 import { MessageBubble } from "./src/components/MessageBubble";
 import { getAudioStatus, getAudioUrl, sendChat } from "./src/api/client";
 import type { ChatMessage } from "./src/types/chat";
-import { createSessionId } from "./src/utils/session";
+import { loadStoredMessages, saveStoredMessages } from "./src/utils/chatStorage";
+import { getOrCreateSessionId } from "./src/utils/session";
 
 const starterMessages: ChatMessage[] = [
   {
@@ -37,7 +38,8 @@ export default function App() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const sessionId = useMemo(() => createSessionId(), []);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(starterMessages);
   const scrollRef = useRef<ScrollView>(null);
   const shouldFollowScrollRef = useRef(true);
   const userPausedFollowRef = useRef(false);
@@ -75,6 +77,43 @@ export default function App() {
     });
   }
 
+  function updateMessages(
+    updater: (current: ChatMessage[]) => ChatMessage[],
+    options: { persist?: boolean } = {},
+  ) {
+    setMessages((current) => {
+      const next = updater(current);
+      messagesRef.current = next;
+      if (options.persist) {
+        void saveStoredMessages(next);
+      }
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    void Promise.all([getOrCreateSessionId(), loadStoredMessages()])
+      .then(([id, storedMessages]) => {
+        if (mounted) {
+          setSessionId(id);
+          if (storedMessages?.length) {
+            messagesRef.current = storedMessages;
+            setMessages(storedMessages);
+          }
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setError("会话初始化失败,请重启应用后再试。");
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (!shouldFollowScrollRef.current) {
       return undefined;
@@ -109,10 +148,11 @@ export default function App() {
 
     for (let i = 0; i < chars.length; i += 2) {
       nextText += chars.slice(i, i + 2).join("");
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === messageId ? { ...message, text: nextText } : message,
-        ),
+      updateMessages(
+        (current) =>
+          current.map((message) =>
+            message.id === messageId ? { ...message, text: nextText } : message,
+          ),
       );
       if (shouldFollowScrollRef.current) {
         scrollToBottom(false);
@@ -122,6 +162,7 @@ export default function App() {
 
     streamingRef.current = false;
     setStreaming(false);
+    void saveStoredMessages(messagesRef.current);
   }
 
   async function pollAudio(messageId: string) {
@@ -130,12 +171,14 @@ export default function App() {
       try {
         const status = await getAudioStatus(messageId);
         if (status.status === "ready") {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === messageId
-                ? { ...message, audioStatus: "ready", audioUrl: status.audio_url ?? getAudioUrl(messageId) }
-                : message,
-            ),
+          updateMessages(
+            (current) =>
+              current.map((message) =>
+                message.id === messageId
+                  ? { ...message, audioStatus: "ready", audioUrl: status.audio_url ?? getAudioUrl(messageId) }
+                  : message,
+              ),
+            { persist: true },
           );
           return;
         }
@@ -144,16 +187,18 @@ export default function App() {
       }
     }
 
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === messageId ? { ...message, audioStatus: "failed" } : message,
-      ),
+    updateMessages(
+      (current) =>
+        current.map((message) =>
+          message.id === messageId ? { ...message, audioStatus: "failed" } : message,
+        ),
+      { persist: true },
     );
   }
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || loading || streaming) {
+    if (!text || !sessionId || loading || streaming) {
       return;
     }
 
@@ -163,7 +208,7 @@ export default function App() {
       text,
     };
 
-    setMessages((current) => [...current, userMessage]);
+    updateMessages((current) => [...current, userMessage], { persist: true });
     userPausedFollowRef.current = false;
     shouldFollowScrollRef.current = true;
     scrollToBottom(false);
@@ -184,7 +229,7 @@ export default function App() {
         audioStatus: response.audio_status_url ? "pending" : undefined,
       };
 
-      setMessages((current) => [...current, masterMessage]);
+      updateMessages((current) => [...current, masterMessage], { persist: true });
       userPausedFollowRef.current = false;
       shouldFollowScrollRef.current = true;
       scrollToBottom(false);
@@ -247,7 +292,7 @@ export default function App() {
 
           <View style={[styles.footer, { marginBottom: keyboardHeight }]}>
             <Composer
-              disabled={loading || streaming}
+              disabled={!sessionId || loading || streaming}
               value={input}
               onChangeText={setInput}
               onSend={handleSend}

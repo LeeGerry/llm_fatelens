@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { AudioPlayButton } from "./AudioPlayButton";
+import { SimpleMarkdown } from "./SimpleMarkdown";
 import type { ChatMessage } from "../types/chat";
 
 type Props = {
@@ -15,7 +16,11 @@ export function MessageBubble({ message }: Props) {
   return (
     <View style={[styles.row, isUser ? styles.userRow : styles.masterRow]}>
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.masterBubble]}>
-        <Text style={[styles.text, isUser ? styles.userText : styles.masterText]}>{message.text}</Text>
+        {isUser ? (
+          <Text style={[styles.text, styles.userText]}>{message.text}</Text>
+        ) : (
+          <SimpleMarkdown text={message.text || " "} />
+        )}
         {!isUser && (
           <View style={styles.metaRow}>
             {message.mood ? <Text style={styles.metaText}>{message.mood}</Text> : null}

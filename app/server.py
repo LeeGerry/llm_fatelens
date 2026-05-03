@@ -1,6 +1,7 @@
 import html
 import logging
 import os
+import re
 import uuid
 
 import requests
@@ -68,6 +69,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def sanitize_text_for_tts(text: str) -> str:
+    cleaned = text
+    cleaned = re.sub(r"```[\s\S]*?```", " ", cleaned)
+    cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"^\s{0,3}#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*[-*+]\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*\d+\.\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"[*_~>#|]", "", cleaned)
+    cleaned = re.sub(r"-{3,}", "。", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
 
 class Master:
     def __init__(self):
@@ -167,10 +184,14 @@ class Master:
         return result
 
     async def get_voice(self, text: str, uid: str, mood: str):
-        logger.info(f"text2speech: {text}")
+        speech_text = sanitize_text_for_tts(text)
+        logger.info(f"text2speech: {speech_text}")
         voice_key = os.getenv("AZURE_VOICE_KEY")
         if not voice_key:
             logger.warning("未配置 AZURE_VOICE_KEY,跳过语音合成")
+            return
+        if not speech_text:
+            logger.warning("清洗后 TTS 文本为空,跳过语音合成")
             return
 
         headers = {
@@ -182,7 +203,7 @@ class Master:
 
         body = SSML_TEMPLATE.format(
             voice_style=self.MOODS[mood]["voiceStyle"],
-            text=html.escape(text),
+            text=html.escape(speech_text),
         )
 
         response = requests.post(
