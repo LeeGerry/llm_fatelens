@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Keyboard,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +11,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -18,6 +20,7 @@ import { MessageBubble } from "./src/components/MessageBubble";
 import {
   getAudioStatus,
   getAudioUrl,
+  retryAudio,
   sendChat,
   streamChat,
   streamChatSse,
@@ -45,6 +48,7 @@ export default function App() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>(starterMessages);
   const scrollRef = useRef<ScrollView>(null);
@@ -63,11 +67,15 @@ export default function App() {
       if (nearBottom && !loadingRef.current && !streamingRef.current) {
         userPausedFollowRef.current = false;
         shouldFollowScrollRef.current = true;
+        setHasUnreadMessages(false);
       }
       return;
     }
 
     shouldFollowScrollRef.current = nearBottom;
+    if (nearBottom) {
+      setHasUnreadMessages(false);
+    }
   }
 
   function pauseAutoFollow() {
@@ -81,6 +89,19 @@ export default function App() {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToEnd({ animated });
     });
+  }
+
+  function revealLatestMessage() {
+    userPausedFollowRef.current = false;
+    shouldFollowScrollRef.current = true;
+    setHasUnreadMessages(false);
+    scrollToBottom();
+  }
+
+  function markUnreadIfPaused() {
+    if (!shouldFollowScrollRef.current) {
+      setHasUnreadMessages(true);
+    }
   }
 
   function updateMessages(
@@ -160,6 +181,7 @@ export default function App() {
             message.id === messageId ? { ...message, text: nextText } : message,
           ),
       );
+      markUnreadIfPaused();
       if (shouldFollowScrollRef.current) {
         scrollToBottom(false);
       }
@@ -188,6 +210,16 @@ export default function App() {
           );
           return;
         }
+        if (status.status === "failed") {
+          updateMessages(
+            (current) =>
+              current.map((message) =>
+                message.id === messageId ? { ...message, audioStatus: "failed" } : message,
+              ),
+            { persist: true },
+          );
+          return;
+        }
       } catch {
         // Keep polling; local Wi-Fi can briefly drop during Expo Go reloads.
       }
@@ -200,6 +232,41 @@ export default function App() {
         ),
       { persist: true },
     );
+  }
+
+  async function handleRetryAudio(message: ChatMessage) {
+    if (!message.text.trim()) {
+      return;
+    }
+
+    updateMessages(
+      (current) =>
+        current.map((item) =>
+          item.id === message.id
+            ? {
+                ...item,
+                audioStatus: "pending",
+                audioStatusUrl: item.audioStatusUrl ?? `${item.id}`,
+                audioUrl: null,
+              }
+            : item,
+        ),
+      { persist: true },
+    );
+
+    try {
+      await retryAudio(message.id, message.text, message.mood ?? "default");
+      void pollAudio(message.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "语音重试失败,请稍后再试。");
+      updateMessages(
+        (current) =>
+          current.map((item) =>
+            item.id === message.id ? { ...item, audioStatus: "failed" } : item,
+          ),
+        { persist: true },
+      );
+    }
   }
 
   async function sendNonStreaming(text: string, currentSessionId: string) {
@@ -279,6 +346,7 @@ export default function App() {
                 : message,
             ),
           );
+          markUnreadIfPaused();
           if (shouldFollowScrollRef.current) {
             scrollToBottom(false);
           }
@@ -386,7 +454,10 @@ export default function App() {
       <View style={styles.container}>
         <View style={styles.shell}>
           <View style={styles.header}>
-            <View>
+            <View style={styles.identity}>
+              <View style={styles.seal}>
+                <Text style={styles.sealText}>命</Text>
+              </View>
               <Text style={styles.title}>陈玉楼大师</Text>
             </View>
             <View style={styles.statusPill}>
@@ -410,7 +481,7 @@ export default function App() {
             }}
           >
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble key={message.id} message={message} onRetryAudio={handleRetryAudio} />
             ))}
             {loading ? (
               <View style={styles.loadingRow}>
@@ -421,8 +492,20 @@ export default function App() {
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </ScrollView>
 
+          {hasUnreadMessages ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={revealLatestMessage}
+              style={[styles.newMessageButton, { bottom: keyboardHeight + 92 }]}
+            >
+              <Ionicons name="arrow-down" size={15} color="#ffffff" />
+              <Text style={styles.newMessageText}>新消息</Text>
+            </Pressable>
+          ) : null}
+
           <View style={[styles.footer, { marginBottom: keyboardHeight }]}>
             <Composer
+              busy={loading || streaming}
               disabled={!sessionId || loading || streaming}
               value={input}
               onChangeText={setInput}
@@ -457,6 +540,27 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 18,
     paddingVertical: 14,
+  },
+  identity: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  seal: {
+    alignItems: "center",
+    backgroundColor: "#9f3328",
+    borderColor: "#c86f5b",
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    transform: [{ rotate: "-5deg" }],
+    width: 38,
+  },
+  sealText: {
+    color: "#fff5e9",
+    fontSize: 20,
+    fontWeight: "900",
   },
   title: {
     color: "#1f2528",
@@ -500,6 +604,27 @@ const styles = StyleSheet.create({
     color: "#a1352d",
     fontSize: 14,
     marginTop: 12,
+  },
+  newMessageButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#8d3f2d",
+    borderRadius: 8,
+    elevation: 4,
+    flexDirection: "row",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    position: "absolute",
+    shadowColor: "#2b261f",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+  },
+  newMessageText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
   },
   footer: {
     borderTopColor: "#dccdb9",

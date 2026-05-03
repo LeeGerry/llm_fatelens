@@ -14,6 +14,7 @@ export type AudioStatusResponse = {
   id: string;
   status: "pending" | "ready" | "failed";
   audio_url: string | null;
+  error?: string | null;
 };
 
 export type ChatStreamEvent =
@@ -237,4 +238,25 @@ export async function getAudioStatus(audioId: string): Promise<AudioStatusRespon
     ...status,
     audio_url: getAudioUrl(audioId),
   };
+}
+
+export async function retryAudio(
+  audioId: string,
+  text: string,
+  mood = "default",
+): Promise<AudioStatusResponse> {
+  const response = await fetch(`${getApiBaseUrl()}/audio/${audioId}/retry`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text, mood }),
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw new Error(responseText || `Audio retry failed: ${response.status}`);
+  }
+
+  return response.json();
 }

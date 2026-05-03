@@ -9,14 +9,14 @@ type Props = {
 
 type AudioController = {
   id: string;
-  pause: () => void;
+  stop: () => void;
 };
 
 let activeAudioController: AudioController | null = null;
 
 function makeAudioControllerActive(controller: AudioController) {
   if (activeAudioController && activeAudioController.id !== controller.id) {
-    activeAudioController.pause();
+    activeAudioController.stop();
   }
   activeAudioController = controller;
 }
@@ -48,10 +48,12 @@ export function AudioPlayButton({ url }: Props) {
 
 function ActivatedAudioPlayButton({ url }: Props) {
   const controllerIdRef = useRef(`audio-${Date.now()}-${Math.random()}`);
+  const [hasPlayed, setHasPlayed] = useState(false);
   const player = useAudioPlayer(url, { updateInterval: 250 });
   const status = useAudioPlayerStatus(player);
   const isPlaying = status.playing;
   const isBuffering = status.isBuffering;
+  const isFinished = status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration);
 
   useEffect(() => {
     void setAudioModeAsync({
@@ -63,9 +65,13 @@ function ActivatedAudioPlayButton({ url }: Props) {
   useEffect(() => {
     const controller = {
       id: controllerIdRef.current,
-      pause: () => player.pause(),
+      stop: () => {
+        player.pause();
+        player.seekTo(0);
+      },
     };
     makeAudioControllerActive(controller);
+    setHasPlayed(true);
     player.play();
 
     return () => {
@@ -77,19 +83,30 @@ function ActivatedAudioPlayButton({ url }: Props) {
   function handlePress() {
     if (isPlaying) {
       player.pause();
+      player.seekTo(0);
       clearAudioController(controllerIdRef.current);
       return;
     }
 
     makeAudioControllerActive({
       id: controllerIdRef.current,
-      pause: () => player.pause(),
+      stop: () => {
+        player.pause();
+        player.seekTo(0);
+      },
     });
-    if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration)) {
+    if (isFinished) {
       player.seekTo(0);
     }
+    setHasPlayed(true);
     player.play();
   }
+
+  useEffect(() => {
+    if (isFinished && !isPlaying) {
+      clearAudioController(controllerIdRef.current);
+    }
+  }, [isFinished, isPlaying]);
 
   return (
     <Pressable
@@ -99,7 +116,7 @@ function ActivatedAudioPlayButton({ url }: Props) {
     >
       <Ionicons name={isPlaying ? "pause" : "play"} size={14} color="#ffffff" />
       <Text style={styles.audioButtonText}>
-        {isBuffering ? "加载中" : isPlaying ? "暂停" : "播放语音"}
+        {isBuffering ? "加载中" : isPlaying ? "停止播放" : hasPlayed ? "重新播放" : "播放语音"}
       </Text>
     </Pressable>
   );

@@ -1,14 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 type Props = {
+  busy?: boolean;
   disabled?: boolean;
   value: string;
   onChangeText: (value: string) => void;
   onSend: () => void;
 };
 
-export function Composer({ disabled, value, onChangeText, onSend }: Props) {
+export function Composer({ busy, disabled, value, onChangeText, onSend }: Props) {
   const canSend = value.trim().length > 0 && !disabled;
 
   return (
@@ -18,7 +19,7 @@ export function Composer({ disabled, value, onChangeText, onSend }: Props) {
         editable={!disabled}
         value={value}
         onChangeText={onChangeText}
-        placeholder="问问陈大师..."
+        placeholder={busy ? "大师正在推演..." : "问问陈大师..."}
         placeholderTextColor="#927f67"
         style={styles.input}
       />
@@ -28,7 +29,11 @@ export function Composer({ disabled, value, onChangeText, onSend }: Props) {
         onPress={onSend}
         style={[styles.button, !canSend && styles.buttonDisabled]}
       >
-        <Ionicons name="send" size={19} color="#ffffff" />
+        {busy ? (
+          <ActivityIndicator color="#ffffff" size="small" />
+        ) : (
+          <Ionicons name="send" size={19} color="#ffffff" />
+        )}
       </Pressable>
     </View>
   );

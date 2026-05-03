@@ -21,3 +21,9 @@ class AudioStatusResponse(BaseModel):
     id: str
     status: str
     audio_url: str | None = None
+    error: str | None = None
+
+
+class AudioRetryRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="需要重新生成语音的文本")
+    mood: str = Field(default="default", description="语音情绪风格")

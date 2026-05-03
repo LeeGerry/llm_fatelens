@@ -7,9 +7,10 @@ import type { ChatMessage } from "../types/chat";
 
 type Props = {
   message: ChatMessage;
+  onRetryAudio?: (message: ChatMessage) => void;
 };
 
-export function MessageBubble({ message }: Props) {
+export function MessageBubble({ message, onRetryAudio }: Props) {
   const isUser = message.role === "user";
   const canPlay = !isUser && message.audioStatus === "ready" && message.audioUrl;
 
@@ -31,10 +32,19 @@ export function MessageBubble({ message }: Props) {
               </View>
             ) : null}
             {message.audioStatus === "failed" ? (
-              <View style={styles.audioPending}>
-                <Ionicons name="alert-circle-outline" size={14} color="#a1352d" />
-                <Text style={styles.errorMetaText}>语音暂不可用</Text>
-              </View>
+              <>
+                <View style={styles.audioPending}>
+                  <Ionicons name="alert-circle-outline" size={14} color="#a1352d" />
+                  <Text style={styles.errorMetaText}>语音生成失败</Text>
+                </View>
+                <Text
+                  accessibilityRole="button"
+                  onPress={() => onRetryAudio?.(message)}
+                  style={styles.retryText}
+                >
+                  重试生成语音
+                </Text>
+              </>
             ) : null}
             {canPlay ? <AudioPlayButton url={message.audioUrl as string} /> : null}
           </View>
@@ -93,6 +103,11 @@ const styles = StyleSheet.create({
   errorMetaText: {
     color: "#a1352d",
     fontSize: 12,
+  },
+  retryText: {
+    color: "#8d3f2d",
+    fontSize: 12,
+    fontWeight: "700",
   },
   audioPending: {
     alignItems: "center",

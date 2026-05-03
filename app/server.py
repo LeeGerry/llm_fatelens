@@ -40,7 +40,7 @@ try:
     )
     from .llm import get_chat_model
     from .prompts import EMOTION_PROMPT, MEMORY_SUMMARY_PROMPT, MOODS, SYSTEM_PROMPT
-    from .schemas import AudioStatusResponse, ChatRequest, ChatResponse
+    from .schemas import AudioRetryRequest, AudioStatusResponse, ChatRequest, ChatResponse
 except ImportError:
     from MyTools import bazi_cesuan, get_local_knowledge, search, yaoyigua
     from config import (
@@ -57,7 +57,7 @@ except ImportError:
     )
     from llm import get_chat_model
     from prompts import EMOTION_PROMPT, MEMORY_SUMMARY_PROMPT, MOODS, SYSTEM_PROMPT
-    from schemas import AudioStatusResponse, ChatRequest, ChatResponse
+    from schemas import AudioRetryRequest, AudioStatusResponse, ChatRequest, ChatResponse
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -70,6 +70,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+audio_jobs: dict[str, dict[str, str]] = {}
+
+
+def set_audio_status(audio_id: str, status: str, error: str | None = None):
+    audio_jobs[audio_id] = {"status": status}
+    if error:
+        audio_jobs[audio_id]["error"] = error
 
 
 def sanitize_text_for_tts(text: str) -> str:
@@ -192,10 +199,10 @@ class Master:
         voice_key = os.getenv("AZURE_VOICE_KEY")
         if not voice_key:
             logger.warning("未配置 AZURE_VOICE_KEY,跳过语音合成")
-            return
+            return False, "未配置 AZURE_VOICE_KEY"
         if not speech_text:
             logger.warning("清洗后 TTS 文本为空,跳过语音合成")
-            return
+            return False, "清洗后 TTS 文本为空"
 
         headers = {
             "Ocp-Apim-Subscription-Key": voice_key,
@@ -223,14 +230,22 @@ class Master:
             with open(output_path, "wb") as audio_file:
                 audio_file.write(response.content)
             logger.info(f"语音合成成功,文件路径: {output_path}")
+            return True, None
         else:
             logger.error(f"语音合成失败,状态码: {response.status_code}, 响应内容: {response.text}")
+            return False, f"Azure TTS 返回 {response.status_code}"
 
     def background_voice_synthesis(self, text: str, uid: str, mood: str):
+        set_audio_status(uid, "pending")
         try:
-            asyncio.run(self.get_voice(text, uid, mood))
+            ok, error = asyncio.run(self.get_voice(text, uid, mood))
+            if ok:
+                set_audio_status(uid, "ready")
+            else:
+                set_audio_status(uid, "failed", error or "语音合成失败")
         except Exception as e:
             logger.error(f"后台语音合成失败: {e}")
+            set_audio_status(uid, "failed", str(e))
 
     async def stream_direct_reply(
         self,
@@ -352,6 +367,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     audio_url = None
     audio_status_url = None
     if request.with_voice:
+        set_audio_status(unique_id, "pending")
         background_tasks.add_task(master.background_voice_synthesis, msg["output"], unique_id, mood)
         audio_url = f"{PUBLIC_BASE_URL}/voices/{unique_id}.mp3"
         audio_status_url = f"{PUBLIC_BASE_URL}/audio/{unique_id}/status"
@@ -472,11 +488,30 @@ def get_audio_status(audio_id: str):
     filename = f"{audio_id}.mp3"
     path = os.path.join(VOICE_OUTPUT_DIR, filename)
     if os.path.exists(path):
+        set_audio_status(audio_id, "ready")
         return AudioStatusResponse(
             id=audio_id,
             status="ready",
             audio_url=f"{PUBLIC_BASE_URL}/voices/{filename}",
         )
+    job = audio_jobs.get(audio_id)
+    if job:
+        return AudioStatusResponse(
+            id=audio_id,
+            status=job.get("status", "pending"),
+            error=job.get("error"),
+        )
+    return AudioStatusResponse(id=audio_id, status="pending")
+
+
+@app.post("/audio/{audio_id}/retry", response_model=AudioStatusResponse)
+async def retry_audio(audio_id: str, request: AudioRetryRequest, background_tasks: BackgroundTasks):
+    if "/" in audio_id or audio_id.endswith(".mp3"):
+        raise HTTPException(status_code=400, detail="invalid audio id")
+
+    mood = request.mood if request.mood in MOODS else "default"
+    set_audio_status(audio_id, "pending")
+    background_tasks.add_task(master.background_voice_synthesis, request.text, audio_id, mood)
     return AudioStatusResponse(id=audio_id, status="pending")
 
 @app.post("/add_urls")

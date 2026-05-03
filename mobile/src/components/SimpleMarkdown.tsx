@@ -43,8 +43,38 @@ function InlineText({ text, style }: { text: string; style?: object }) {
   );
 }
 
+function segmentLongPlainText(text: string) {
+  if (text.includes("\n") || text.length < 120) {
+    return text;
+  }
+
+  const sentences = text.match(/[^。！？!?；;]+[。！？!?；;]?/g);
+  if (!sentences || sentences.length < 3) {
+    return text;
+  }
+
+  const paragraphs: string[] = [];
+  let current = "";
+
+  for (const sentence of sentences) {
+    const next = `${current}${sentence}`;
+    if (current && next.length > 86) {
+      paragraphs.push(current.trim());
+      current = sentence;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current.trim()) {
+    paragraphs.push(current.trim());
+  }
+
+  return paragraphs.join("\n\n");
+}
+
 export function SimpleMarkdown({ text }: Props) {
-  const lines = text.split(/\r?\n/);
+  const lines = segmentLongPlainText(text).split(/\r?\n/);
 
   return (
     <View>
