@@ -16,7 +16,7 @@ import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 
 import { Composer } from "./src/components/Composer";
 import { MessageBubble } from "./src/components/MessageBubble";
-import { getApiBaseUrl, getAudioStatus, sendChat } from "./src/api/client";
+import { getAudioStatus, sendChat } from "./src/api/client";
 import type { ChatMessage } from "./src/types/chat";
 import { createSessionId } from "./src/utils/session";
 
@@ -206,11 +206,9 @@ export default function App() {
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>陈玉楼大师</Text>
-              <Text style={styles.subtitle}>Native AI fortune chat demo</Text>
             </View>
             <View style={styles.statusPill}>
               <View style={styles.statusDot} />
-              <Text style={styles.statusText}>API</Text>
             </View>
           </View>
 
@@ -242,7 +240,6 @@ export default function App() {
           </ScrollView>
 
           <View style={[styles.footer, { marginBottom: keyboardHeight }]}>
-            <Text style={styles.apiText}>{getApiBaseUrl()}</Text>
             <Composer
               disabled={loading || streaming}
               value={input}
@@ -284,32 +281,21 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "800",
   },
-  subtitle: {
-    color: "#745f48",
-    fontSize: 13,
-    marginTop: 2,
-  },
   statusPill: {
     alignItems: "center",
     backgroundColor: "#fffaf3",
     borderColor: "#e2d2bd",
     borderRadius: 8,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
   },
   statusDot: {
     backgroundColor: "#3f8f63",
     borderRadius: 4,
     height: 8,
     width: 8,
-  },
-  statusText: {
-    color: "#4a3d2e",
-    fontSize: 12,
-    fontWeight: "700",
   },
   messages: {
     padding: 18,
@@ -340,9 +326,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: Platform.select({ android: 18, default: 14 }),
-  },
-  apiText: {
-    color: "#745f48",
-    fontSize: 12,
   },
 });
