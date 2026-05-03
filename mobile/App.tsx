@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
-  StatusBar as NativeStatusBar,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +11,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Composer } from "./src/components/Composer";
 import { MessageBubble } from "./src/components/MessageBubble";
@@ -45,7 +44,6 @@ export default function App() {
   const userPausedFollowRef = useRef(false);
   const loadingRef = useRef(false);
   const streamingRef = useRef(false);
-  const topInset = Platform.OS === "android" ? NativeStatusBar.currentHeight ?? 0 : 0;
 
   function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -250,7 +248,7 @@ export default function App() {
   }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { paddingTop: topInset }]}>
+    <SafeAreaView style={styles.safeArea}>
       <ExpoStatusBar style="dark" />
       <View style={styles.container}>
         <View style={styles.shell}>
