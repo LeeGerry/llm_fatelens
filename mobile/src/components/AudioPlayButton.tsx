@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 
@@ -8,6 +8,25 @@ type Props = {
 };
 
 export function AudioPlayButton({ url }: Props) {
+  const [activated, setActivated] = useState(false);
+
+  if (!activated) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setActivated(true)}
+        style={styles.audioButton}
+      >
+        <Ionicons name="play" size={14} color="#ffffff" />
+        <Text style={styles.audioButtonText}>播放语音</Text>
+      </Pressable>
+    );
+  }
+
+  return <ActivatedAudioPlayButton url={url} />;
+}
+
+function ActivatedAudioPlayButton({ url }: Props) {
   const player = useAudioPlayer(url, { updateInterval: 250 });
   const status = useAudioPlayerStatus(player);
   const isPlaying = status.playing;
@@ -19,6 +38,10 @@ export function AudioPlayButton({ url }: Props) {
       interruptionMode: "doNotMix",
     });
   }, []);
+
+  useEffect(() => {
+    player.play();
+  }, [player]);
 
   function handlePress() {
     if (isPlaying) {
