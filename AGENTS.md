@@ -21,9 +21,11 @@ python app/tele.py
 
 ## 必要环境变量（`.env`）
 
-- `OPENAI_API_KEY` — GPT-4.1-mini 及 text-embedding-3-small
+- `DEEPSEEK_API_KEY` — 默认聊天 LLM
+- `REDIS_URL` — 后端多轮记忆
 - `SERPAPI_API_KEY` — SerpAPI 网络搜索
 - `AZURE_VOICE_KEY` — Azure 认知服务 TTS
+- `YUANFENJU_API_KEY` — 八字/摇卦工具
 - `TELEGRAM_BOT_TOKEN` — Telegram 机器人
 
 ## 依赖服务
@@ -33,9 +35,9 @@ python app/tele.py
 
 ## 架构说明
 
-### 核心：`app/server.py`
+### 核心：`app/main.py` + `app/services/`
 
-`Master` 类是整个系统的核心调度器：
+`app/main.py` 是 FastAPI 入口，`Master` 类位于 `app/services/master.py`，是整个系统的核心调度器：
 
 - **情绪系统** — 对用户消息进行情绪分类（default/depressed/friendly/angry/upbeat/anxious/happy），情绪结果驱动 Azure TTS 的语音风格
 - **记忆管理** — 基于 Redis 的 `RedisChatMessageHistory`；当历史消息超过 10 条时，由 LLM 自动摘要并保留关键用户信息（如生辰八字等）

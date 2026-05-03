@@ -8,6 +8,7 @@ export type ChatResponse = {
   mood: string;
   audio_url: string | null;
   audio_status_url: string | null;
+  tools_used: string[];
 };
 
 export type AudioStatusResponse = {
@@ -22,6 +23,7 @@ export type ChatStreamEvent =
       type: "start";
       message_id: string;
       mood: string;
+      tools_used?: string[];
     }
   | {
       type: "delta";
@@ -33,6 +35,7 @@ export type ChatStreamEvent =
       mood: string;
       audio_url: string | null;
       audio_status_url: string | null;
+      tools_used?: string[];
     }
   | {
       type: "error";

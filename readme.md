@@ -31,7 +31,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app.server:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 健康检查：
@@ -165,7 +165,8 @@ REDIS_URL=rediss://default:password@host.upstash.io:6379
   "message_id": "uuid",
   "mood": "anxious",
   "audio_url": "http://localhost:8000/voices/uuid.mp3",
-  "audio_status_url": "http://localhost:8000/audio/uuid/status"
+  "audio_status_url": "http://localhost:8000/audio/uuid/status",
+  "tools_used": ["bazi_cesuan"]
 }
 ```
 

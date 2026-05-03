@@ -14,7 +14,14 @@ class ChatResponse(BaseModel):
     mood: str
     audio_url: str | None = None
     audio_status_url: str | None = None
+    tools_used: list[str] = Field(default_factory=list)
     raw: dict | None = None
+
+
+class ErrorResponse(BaseModel):
+    ok: bool = False
+    error_code: str
+    message: str
 
 
 class AudioStatusResponse(BaseModel):

@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import requests
 from langchain_community.utilities import SerpAPIWrapper
@@ -39,6 +40,13 @@ _qdrant_client = None
 _embeddings = None
 
 
+def tool_error(error_code: str, message: str):
+    return json.dumps(
+        {"ok": False, "error_code": error_code, "message": message},
+        ensure_ascii=False,
+    )
+
+
 def get_qdrant_client():
     global _qdrant_client
     if _qdrant_client is None:
@@ -71,7 +79,7 @@ def get_local_knowledge(query: str):
         )
     except Exception as e:
         logger.warning(f"本地知识库暂不可用: {e}")
-        return "本地知识库暂不可用,请基于已有命理经验回答,并说明不确定部分."
+        return tool_error("LOCAL_KNOWLEDGE_UNAVAILABLE", "本地知识库暂不可用,请基于已有命理经验回答,并说明不确定部分.")
 
     points = response.points
     result = []
@@ -82,7 +90,7 @@ def get_local_knowledge(query: str):
             result.append(page_content)
 
     logger.info(f"本地知识库工具返回的结果: {result}")
-    return "\n\n".join(result) if result else "本地知识库中没有检索到相关内容"
+    return "\n\n".join(result) if result else tool_error("LOCAL_KNOWLEDGE_EMPTY", "本地知识库中没有检索到相关内容")
 
 @tool
 def search(query: str):
@@ -95,7 +103,7 @@ def search(query: str):
         return result
     except Exception as e:
         logger.error(f"搜索工具请求异常: {e}")
-        return "搜索工具暂不可用,请基于已有信息回答,并说明实时信息未核验."
+        return tool_error("SEARCH_UNAVAILABLE", "搜索工具暂不可用,请基于已有信息回答,并说明实时信息未核验.")
 
 @tool
 def bazi_cesuan(query: str):
@@ -103,7 +111,7 @@ def bazi_cesuan(query: str):
     logger.info(f"正在使用八字测算工具 query: {query}")
     api_key = os.getenv("YUANFENJU_API_KEY", "")
     if not api_key:
-        return "八字测算工具未配置 YUANFENJU_API_KEY,请基于用户提供的出生信息做一般性命理分析,并说明未调用外部八字接口."
+        return tool_error("YUANFENJU_API_KEY_MISSING", "八字测算工具未配置 YUANFENJU_API_KEY,请基于用户提供的出生信息做一般性命理分析,并说明未调用外部八字接口.")
 
     prompt = ChatPromptTemplate.from_template(BAZI_PARAM_PROMPT)
     parser = JsonOutputParser()
@@ -115,7 +123,7 @@ def bazi_cesuan(query: str):
         data = chain.invoke({"query": query})
     except Exception as e:
         logger.error(f"八字测算工具参数提取失败: {e}")
-        return "八字测算工具参数提取失败,请基于用户已提供的姓名和出生年月日时做一般性命理分析,并说明未调用外部八字接口."
+        return tool_error("BAZI_PARAM_PARSE_FAILED", "八字测算工具参数提取失败,请基于用户已提供的姓名和出生年月日时做一般性命理分析,并说明未调用外部八字接口.")
 
     logger.info(f"八字测算工具返回的结果: {data}")
     try:
@@ -127,13 +135,13 @@ def bazi_cesuan(query: str):
                 return resp_data["data"]
             except Exception as e:
                 logger.error(f"八字测算工具接口返回的结果无法解析: {e}")
-                return "八字测算工具失败,接口返回的结果无法解析"
+                return tool_error("BAZI_RESPONSE_PARSE_FAILED", "八字测算工具失败,接口返回的结果无法解析")
         else:
             logger.error(f"八字测算工具接口请求失败,状态码: {result.status_code},响应内容: {result.text}")
-            return "八字测算工具请求失败"
+            return tool_error("BAZI_REQUEST_FAILED", "八字测算工具请求失败")
     except Exception as e:
         logger.error(f"八字测算工具请求异常: {e}")
-        return "八字测算工具请求异常"
+        return tool_error("BAZI_REQUEST_EXCEPTION", "八字测算工具请求异常")
 
 @tool
 def yaoyigua():
@@ -149,10 +157,10 @@ def yaoyigua():
                 return resp_data["data"]
             except Exception as e:
                 logger.error(f"占卜抽签工具接口返回的结果无法解析: {e}")
-                return "占卜抽签工具失败,接口返回的结果无法解析"
+                return tool_error("YAOYIGUA_RESPONSE_PARSE_FAILED", "占卜抽签工具失败,接口返回的结果无法解析")
         else:
             logger.error(f"占卜抽签工具接口请求失败,状态码: {result.status_code},响应内容: {result.text}")
-            return "占卜抽签工具请求失败"
+            return tool_error("YAOYIGUA_REQUEST_FAILED", "占卜抽签工具请求失败")
     except Exception as e:
         logger.error(f"占卜抽签工具请求异常: {e}")
-        return "占卜抽签工具请求异常"
+        return tool_error("YAOYIGUA_REQUEST_EXCEPTION", "占卜抽签工具请求异常")

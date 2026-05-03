@@ -14,15 +14,30 @@ type AudioController = {
 
 let activeAudioController: AudioController | null = null;
 
+function safelyStopAudio(controller: AudioController) {
+  try {
+    controller.stop();
+  } catch {
+    // Expo can release native audio objects during fast unmount/session switches.
+  }
+}
+
 function makeAudioControllerActive(controller: AudioController) {
   if (activeAudioController && activeAudioController.id !== controller.id) {
-    activeAudioController.stop();
+    safelyStopAudio(activeAudioController);
   }
   activeAudioController = controller;
 }
 
 function clearAudioController(controllerId: string) {
   if (activeAudioController?.id === controllerId) {
+    activeAudioController = null;
+  }
+}
+
+export function stopActiveAudio() {
+  if (activeAudioController) {
+    safelyStopAudio(activeAudioController);
     activeAudioController = null;
   }
 }
@@ -76,7 +91,11 @@ function ActivatedAudioPlayButton({ url }: Props) {
 
     return () => {
       clearAudioController(controller.id);
-      player.pause();
+      try {
+        player.pause();
+      } catch {
+        // Native player may already be released while switching chat sessions.
+      }
     };
   }, [player]);
 

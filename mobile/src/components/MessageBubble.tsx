@@ -13,6 +13,7 @@ type Props = {
 export function MessageBubble({ message, onRetryAudio }: Props) {
   const isUser = message.role === "user";
   const canPlay = !isUser && message.audioStatus === "ready" && message.audioUrl;
+  const toolsUsed = message.toolsUsed ?? [];
 
   return (
     <View style={[styles.row, isUser ? styles.userRow : styles.masterRow]}>
@@ -25,6 +26,12 @@ export function MessageBubble({ message, onRetryAudio }: Props) {
         {!isUser && (
           <View style={styles.metaRow}>
             {message.mood ? <Text style={styles.metaText}>[{message.mood}]</Text> : null}
+            {toolsUsed.map((tool) => (
+              <View key={tool} style={styles.toolTag}>
+                <Ionicons name="construct-outline" size={12} color="#8d3f2d" />
+                <Text style={styles.toolTagText}>{tool}</Text>
+              </View>
+            ))}
             {message.audioStatus === "pending" ? (
               <View style={styles.audioPending}>
                 <Ionicons name="time-outline" size={14} color="#7b6b57" />
@@ -108,6 +115,22 @@ const styles = StyleSheet.create({
     color: "#8d3f2d",
     fontSize: 12,
     fontWeight: "700",
+  },
+  toolTag: {
+    alignItems: "center",
+    backgroundColor: "#fff4ea",
+    borderColor: "#ead4c4",
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  toolTagText: {
+    color: "#8d3f2d",
+    fontSize: 11,
+    fontWeight: "800",
   },
   audioPending: {
     alignItems: "center",

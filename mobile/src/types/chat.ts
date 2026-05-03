@@ -6,4 +6,5 @@ export type ChatMessage = {
   audioUrl?: string | null;
   audioStatusUrl?: string | null;
   audioStatus?: "pending" | "ready" | "failed";
+  toolsUsed?: string[];
 };
