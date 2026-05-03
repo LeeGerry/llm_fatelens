@@ -1,12 +1,14 @@
 import telebot
 import requests
-import urllib.parse
-import json
 import os
 import asyncio
 import logging
 from dotenv import load_dotenv
-from config import SERVER_CHAT_URL, TELEGRAM_START_MSG, MAX_AUDIO_WAIT, VOICE_OUTPUT_DIR
+
+try:
+    from .config import SERVER_CHAT_URL, TELEGRAM_START_MSG, MAX_AUDIO_WAIT, VOICE_OUTPUT_DIR
+except ImportError:
+    from config import SERVER_CHAT_URL, TELEGRAM_START_MSG, MAX_AUDIO_WAIT, VOICE_OUTPUT_DIR
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -23,17 +25,17 @@ def start(message):
 @bot.message_handler(func=lambda message: True)
 def echo_all(message):
     try:
-        encoded_text = urllib.parse.quote(message.text)
         session_id = str(message.chat.id)
         response = requests.post(
-            f"{SERVER_CHAT_URL}?query={encoded_text}&session_id={session_id}",
+            SERVER_CHAT_URL,
+            json={"message": message.text, "session_id": session_id, "with_voice": True},
             timeout=30,
         )
         if response.status_code == 200:
-            aisay = json.loads(response.text)
-            if "msg" in aisay:
-                bot.reply_to(message, aisay["msg"]["output"])
-                audio_path = os.path.join(VOICE_DIR, f"{aisay['id']}.mp3")
+            aisay = response.json()
+            if "reply" in aisay:
+                bot.reply_to(message, aisay["reply"])
+                audio_path = os.path.join(VOICE_DIR, f"{aisay['message_id']}.mp3")
                 asyncio.run(check_audio(message, audio_path))
         else:
             bot.reply_to(message, "请求出错了哦,请稍后再试.")

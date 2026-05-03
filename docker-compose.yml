@@ -19,7 +19,7 @@ services:
 
   bot:
     build: .
-    command: python app/tele.py
+    command: python -m app.tele
     env_file: .env
     environment:
       - SERVER_URL=http://server:8000

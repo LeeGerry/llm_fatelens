@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "陈玉楼大师",
+    "slug": "digital-human-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "digitalhuman",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.gerryli.digitalhumanmobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    }
+  }
+}

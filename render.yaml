@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: digital-human-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: LLM_PROVIDER
+        value: deepseek
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
+      - key: REDIS_URL
+        sync: false
+      - key: AZURE_VOICE_KEY
+        sync: false
+      - key: AZURE_VOICE_REGION
+        value: eastus
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: YUANFENJU_API_KEY
+        sync: false
