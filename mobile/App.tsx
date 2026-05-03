@@ -9,6 +9,8 @@ import {
   StyleSheet,
   Text,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 
@@ -26,6 +28,7 @@ const starterMessages: ChatMessage[] = [
     mood: "default",
   },
 ];
+const AUTO_SCROLL_THRESHOLD = 96;
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
@@ -36,7 +39,35 @@ export default function App() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const sessionId = useMemo(() => createSessionId(), []);
   const scrollRef = useRef<ScrollView>(null);
+  const shouldFollowScrollRef = useRef(true);
+  const userPausedFollowRef = useRef(false);
+  const loadingRef = useRef(false);
+  const streamingRef = useRef(false);
   const topInset = Platform.OS === "android" ? NativeStatusBar.currentHeight ?? 0 : 0;
+
+  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    const nearBottom = distanceFromBottom < AUTO_SCROLL_THRESHOLD;
+
+    if (userPausedFollowRef.current) {
+      if (nearBottom && !loadingRef.current && !streamingRef.current) {
+        userPausedFollowRef.current = false;
+        shouldFollowScrollRef.current = true;
+      }
+      return;
+    }
+
+    shouldFollowScrollRef.current = nearBottom;
+  }
+
+  function pauseAutoFollow() {
+    if (loadingRef.current || streamingRef.current) {
+      userPausedFollowRef.current = true;
+      shouldFollowScrollRef.current = false;
+    }
+  }
 
   function scrollToBottom(animated = true) {
     requestAnimationFrame(() => {
@@ -45,6 +76,9 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!shouldFollowScrollRef.current) {
+      return undefined;
+    }
     const timer = setTimeout(() => scrollToBottom(), 80);
     return () => clearTimeout(timer);
   }, [messages, loading]);
@@ -68,6 +102,7 @@ export default function App() {
   }, []);
 
   async function streamReply(messageId: string, fullText: string) {
+    streamingRef.current = true;
     setStreaming(true);
     const chars = Array.from(fullText);
     let nextText = "";
@@ -79,10 +114,13 @@ export default function App() {
           message.id === messageId ? { ...message, text: nextText } : message,
         ),
       );
-      scrollToBottom(false);
+      if (shouldFollowScrollRef.current) {
+        scrollToBottom(false);
+      }
       await new Promise((resolve) => setTimeout(resolve, 18));
     }
 
+    streamingRef.current = false;
     setStreaming(false);
   }
 
@@ -120,7 +158,11 @@ export default function App() {
     };
 
     setMessages((current) => [...current, userMessage]);
+    userPausedFollowRef.current = false;
+    shouldFollowScrollRef.current = true;
+    scrollToBottom(false);
     setInput("");
+    loadingRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -137,6 +179,10 @@ export default function App() {
       };
 
       setMessages((current) => [...current, masterMessage]);
+      userPausedFollowRef.current = false;
+      shouldFollowScrollRef.current = true;
+      scrollToBottom(false);
+      loadingRef.current = false;
       setLoading(false);
 
       if (response.audio_status_url) {
@@ -145,6 +191,8 @@ export default function App() {
       await streamReply(response.message_id, response.reply);
     } catch (e) {
       setError(e instanceof Error ? e.message : "请求失败,请稍后再试。");
+      loadingRef.current = false;
+      streamingRef.current = false;
       setLoading(false);
       setStreaming(false);
     }
@@ -171,8 +219,12 @@ export default function App() {
             style={styles.messageScroller}
             contentContainerStyle={styles.messages}
             keyboardShouldPersistTaps="handled"
+            onScroll={handleScroll}
+            onScrollBeginDrag={pauseAutoFollow}
+            onTouchStart={pauseAutoFollow}
+            scrollEventThrottle={16}
             onContentSizeChange={() => {
-              if (loading || streaming) {
+              if ((loading || streaming) && shouldFollowScrollRef.current) {
                 scrollToBottom(false);
               }
             }}
