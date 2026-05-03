@@ -1,4 +1,5 @@
 import html
+import json
 import logging
 import os
 import re
@@ -8,7 +9,7 @@ import requests
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
@@ -231,8 +232,94 @@ class Master:
         except Exception as e:
             logger.error(f"后台语音合成失败: {e}")
 
+    async def stream_direct_reply(
+        self,
+        query: str,
+        session_id: str,
+        message_id: str,
+        with_voice: bool = True,
+    ):
+        if DEMO_MODE:
+            msg = self.demo_response(query)
+            mood = self.demo_mood(query)
+            yield {"type": "start", "message_id": message_id, "mood": mood}
+            for index in range(0, len(msg["output"]), 4):
+                yield {"type": "delta", "text": msg["output"][index:index + 4]}
+                await asyncio.sleep(0.03)
+            yield {
+                "type": "done",
+                "message_id": message_id,
+                "mood": mood,
+                "audio_url": f"{PUBLIC_BASE_URL}/voices/{message_id}.mp3" if with_voice else None,
+                "audio_status_url": f"{PUBLIC_BASE_URL}/audio/{message_id}/status" if with_voice else None,
+            }
+            if with_voice:
+                asyncio.create_task(asyncio.to_thread(self.background_voice_synthesis, msg["output"], message_id, mood))
+            return
+
+        mood = self.emotion(query)
+        yield {"type": "start", "message_id": message_id, "mood": mood}
+
+        memory_history = self.get_memory(session_id)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", self.SYSTEM_PROMPT.format(who_you_are=self.MOODS[mood]["roleSet"])),
+                MessagesPlaceholder(variable_name=self.MEMORY_KEY),
+                ("user", "{input}"),
+            ]
+        )
+        chain = prompt | get_chat_model(temperature=0, streaming=True)
+
+        full_text = ""
+        async for chunk in chain.astream({"input": query, self.MEMORY_KEY: memory_history.messages}):
+            text = getattr(chunk, "content", "")
+            if not text:
+                continue
+            full_text += text
+            yield {"type": "delta", "text": text}
+
+        memory_history.add_user_message(query)
+        memory_history.add_ai_message(full_text)
+
+        yield {
+            "type": "done",
+            "message_id": message_id,
+            "mood": mood,
+            "audio_url": f"{PUBLIC_BASE_URL}/voices/{message_id}.mp3" if with_voice else None,
+            "audio_status_url": f"{PUBLIC_BASE_URL}/audio/{message_id}/status" if with_voice else None,
+        }
+        if with_voice:
+            asyncio.create_task(asyncio.to_thread(self.background_voice_synthesis, full_text, message_id, mood))
+
 
 master = Master()
+stream_queues: dict[str, asyncio.Queue] = {}
+
+
+async def enqueue_stream_events(
+    stream_id: str,
+    query: str,
+    session_id: str,
+    message_id: str,
+    with_voice: bool,
+):
+    queue = stream_queues.get(stream_id)
+    if queue is None:
+        return
+
+    try:
+        async for event in master.stream_direct_reply(query, session_id, message_id, with_voice):
+            await queue.put(event)
+    except Exception as e:
+        logger.exception(f"SSE 聊天任务失败: {e}")
+        await queue.put(
+            {
+                "type": "error",
+                "message_id": message_id,
+                "mood": "default",
+                "text": "老夫这边的流式测算刚刚岔了一下气,请稍后再试。",
+            }
+        )
 
 
 @app.get("/")
@@ -277,6 +364,78 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
         audio_url=audio_url,
         audio_status_url=audio_status_url,
         raw=msg,
+    )
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    message_id = str(uuid.uuid4())
+
+    async def event_stream():
+        try:
+            async for event in master.stream_direct_reply(
+                request.message,
+                request.session_id,
+                message_id,
+                request.with_voice,
+            ):
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        except Exception as e:
+            logger.exception(f"流式聊天请求失败: {e}")
+            yield json.dumps(
+                {
+                    "type": "error",
+                    "message_id": message_id,
+                    "mood": "default",
+                    "text": "老夫这边的流式测算刚刚岔了一下气,请稍后再试。",
+                },
+                ensure_ascii=False,
+            ) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/chat/stream/start")
+async def chat_stream_start(request: ChatRequest):
+    stream_id = str(uuid.uuid4())
+    message_id = str(uuid.uuid4())
+    stream_queues[stream_id] = asyncio.Queue()
+    asyncio.create_task(
+        enqueue_stream_events(
+            stream_id,
+            request.message,
+            request.session_id,
+            message_id,
+            request.with_voice,
+        )
+    )
+    return {"stream_id": stream_id, "message_id": message_id}
+
+
+@app.get("/chat/stream/{stream_id}/events")
+async def chat_stream_events(stream_id: str):
+    queue = stream_queues.get(stream_id)
+    if queue is None:
+        raise HTTPException(status_code=404, detail="stream not found")
+
+    async def event_stream():
+        try:
+            while True:
+                event = await queue.get()
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                if event.get("type") in {"done", "error"}:
+                    break
+        finally:
+            stream_queues.pop(stream_id, None)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

@@ -1,11 +1,31 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 
 type Props = {
   url: string;
 };
+
+type AudioController = {
+  id: string;
+  pause: () => void;
+};
+
+let activeAudioController: AudioController | null = null;
+
+function makeAudioControllerActive(controller: AudioController) {
+  if (activeAudioController && activeAudioController.id !== controller.id) {
+    activeAudioController.pause();
+  }
+  activeAudioController = controller;
+}
+
+function clearAudioController(controllerId: string) {
+  if (activeAudioController?.id === controllerId) {
+    activeAudioController = null;
+  }
+}
 
 export function AudioPlayButton({ url }: Props) {
   const [activated, setActivated] = useState(false);
@@ -27,6 +47,7 @@ export function AudioPlayButton({ url }: Props) {
 }
 
 function ActivatedAudioPlayButton({ url }: Props) {
+  const controllerIdRef = useRef(`audio-${Date.now()}-${Math.random()}`);
   const player = useAudioPlayer(url, { updateInterval: 250 });
   const status = useAudioPlayerStatus(player);
   const isPlaying = status.playing;
@@ -40,15 +61,30 @@ function ActivatedAudioPlayButton({ url }: Props) {
   }, []);
 
   useEffect(() => {
+    const controller = {
+      id: controllerIdRef.current,
+      pause: () => player.pause(),
+    };
+    makeAudioControllerActive(controller);
     player.play();
+
+    return () => {
+      clearAudioController(controller.id);
+      player.pause();
+    };
   }, [player]);
 
   function handlePress() {
     if (isPlaying) {
       player.pause();
+      clearAudioController(controllerIdRef.current);
       return;
     }
 
+    makeAudioControllerActive({
+      id: controllerIdRef.current,
+      pause: () => player.pause(),
+    });
     if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration)) {
       player.seekTo(0);
     }

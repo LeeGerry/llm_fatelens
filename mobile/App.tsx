@@ -15,7 +15,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Composer } from "./src/components/Composer";
 import { MessageBubble } from "./src/components/MessageBubble";
-import { getAudioStatus, getAudioUrl, sendChat } from "./src/api/client";
+import {
+  getAudioStatus,
+  getAudioUrl,
+  sendChat,
+  streamChat,
+  streamChatSse,
+  supportsFetchStreaming,
+  supportsSseStreaming,
+} from "./src/api/client";
 import type { ChatMessage } from "./src/types/chat";
 import { loadStoredMessages, saveStoredMessages } from "./src/utils/chatStorage";
 import { getOrCreateSessionId } from "./src/utils/session";
@@ -194,6 +202,152 @@ export default function App() {
     );
   }
 
+  async function sendNonStreaming(text: string, currentSessionId: string) {
+    const response = await sendChat(text, currentSessionId);
+    const masterMessage: ChatMessage = {
+      id: response.message_id,
+      role: "master",
+      text: "",
+      mood: response.mood,
+      audioUrl: response.audio_url,
+      audioStatusUrl: response.audio_status_url,
+      audioStatus: response.audio_status_url ? "pending" : undefined,
+    };
+
+    updateMessages((current) => [...current, masterMessage], { persist: true });
+    userPausedFollowRef.current = false;
+    shouldFollowScrollRef.current = true;
+    scrollToBottom(false);
+    loadingRef.current = false;
+    setLoading(false);
+
+    if (response.audio_status_url) {
+      void pollAudio(response.message_id);
+    }
+    await streamReply(response.message_id, response.reply);
+  }
+
+  async function sendWithFallback(text: string, currentSessionId: string) {
+    if (!supportsFetchStreaming() && !supportsSseStreaming()) {
+      await sendNonStreaming(text, currentSessionId);
+      return;
+    }
+
+    let streamMessageId: string | null = null;
+    let streamMood = "default";
+    let receivedStreamStart = false;
+
+    try {
+      loadingRef.current = true;
+      setLoading(true);
+
+      const streamRequest = supportsFetchStreaming() ? streamChat : streamChatSse;
+
+      await streamRequest(text, currentSessionId, (event) => {
+        if (event.type === "start") {
+          receivedStreamStart = true;
+          streamMessageId = event.message_id;
+          streamMood = event.mood;
+          const masterMessage: ChatMessage = {
+            id: event.message_id,
+            role: "master",
+            text: "",
+            mood: event.mood,
+            audioStatus: "pending",
+            audioStatusUrl: `${event.message_id}`,
+          };
+
+          updateMessages((current) => [...current, masterMessage], { persist: true });
+          userPausedFollowRef.current = false;
+          shouldFollowScrollRef.current = true;
+          scrollToBottom(false);
+          loadingRef.current = false;
+          setLoading(false);
+          streamingRef.current = true;
+          setStreaming(true);
+          return;
+        }
+
+        if (event.type === "delta") {
+          if (!streamMessageId) {
+            return;
+          }
+          updateMessages((current) =>
+            current.map((message) =>
+              message.id === streamMessageId
+                ? { ...message, text: `${message.text}${event.text}` }
+                : message,
+            ),
+          );
+          if (shouldFollowScrollRef.current) {
+            scrollToBottom(false);
+          }
+          return;
+        }
+
+        if (event.type === "done") {
+          streamMessageId = event.message_id;
+          streamMood = event.mood;
+          updateMessages(
+            (current) =>
+              current.map((message) =>
+                message.id === event.message_id
+                  ? {
+                      ...message,
+                      mood: event.mood,
+                      audioUrl: event.audio_url,
+                      audioStatusUrl: event.audio_status_url,
+                      audioStatus: event.audio_status_url ? "pending" : undefined,
+                    }
+                  : message,
+              ),
+            { persist: true },
+          );
+          streamingRef.current = false;
+          setStreaming(false);
+          if (event.audio_status_url) {
+            void pollAudio(event.message_id);
+          }
+          return;
+        }
+
+        if (event.type === "error") {
+          throw new Error(event.text);
+        }
+      });
+
+      if (streamMessageId) {
+        void saveStoredMessages(messagesRef.current);
+      }
+    } catch (e) {
+      if (receivedStreamStart) {
+        setError(e instanceof Error ? e.message : "流式回复中断,请稍后再试。");
+        loadingRef.current = false;
+        streamingRef.current = false;
+        setLoading(false);
+        setStreaming(false);
+        if (streamMessageId) {
+          updateMessages(
+            (current) =>
+              current.map((message) =>
+                message.id === streamMessageId
+                  ? { ...message, mood: streamMood, audioStatus: "failed" }
+                  : message,
+              ),
+            { persist: true },
+          );
+        }
+        return;
+      }
+
+      setError(e instanceof Error ? e.message : "流式回复失败,请稍后再试。");
+      loadingRef.current = false;
+      streamingRef.current = false;
+      setLoading(false);
+      setStreaming(false);
+    }
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || !sessionId || loading || streaming) {
@@ -216,28 +370,7 @@ export default function App() {
     setError(null);
 
     try {
-      const response = await sendChat(text, sessionId);
-      const masterMessage: ChatMessage = {
-        id: response.message_id,
-        role: "master",
-        text: "",
-        mood: response.mood,
-        audioUrl: response.audio_url,
-        audioStatusUrl: response.audio_status_url,
-        audioStatus: response.audio_status_url ? "pending" : undefined,
-      };
-
-      updateMessages((current) => [...current, masterMessage], { persist: true });
-      userPausedFollowRef.current = false;
-      shouldFollowScrollRef.current = true;
-      scrollToBottom(false);
-      loadingRef.current = false;
-      setLoading(false);
-
-      if (response.audio_status_url) {
-        void pollAudio(response.message_id);
-      }
-      await streamReply(response.message_id, response.reply);
+      await sendWithFallback(text, sessionId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "请求失败,请稍后再试。");
       loadingRef.current = false;
