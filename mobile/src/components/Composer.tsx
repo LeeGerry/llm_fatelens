@@ -4,12 +4,16 @@ import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react
 type Props = {
   busy?: boolean;
   disabled?: boolean;
+  labels: {
+    busyPlaceholder: string;
+    placeholder: string;
+  };
   value: string;
   onChangeText: (value: string) => void;
   onSend: () => void;
 };
 
-export function Composer({ busy, disabled, value, onChangeText, onSend }: Props) {
+export function Composer({ busy, disabled, labels, value, onChangeText, onSend }: Props) {
   const canSend = value.trim().length > 0 && !disabled;
 
   return (
@@ -19,7 +23,7 @@ export function Composer({ busy, disabled, value, onChangeText, onSend }: Props)
         editable={!disabled}
         value={value}
         onChangeText={onChangeText}
-        placeholder={busy ? "大师正在推演..." : "问问陈大师..."}
+        placeholder={busy ? labels.busyPlaceholder : labels.placeholder}
         placeholderTextColor="#927f67"
         style={styles.input}
       />

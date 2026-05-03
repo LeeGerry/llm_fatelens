@@ -7,7 +7,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type NativeScrollEvent,
@@ -20,6 +22,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Composer } from "./src/components/Composer";
 import { stopActiveAudio } from "./src/components/AudioPlayButton";
 import { MessageBubble } from "./src/components/MessageBubble";
+import { getTranslator } from "./src/i18n";
 import {
   getAudioStatus,
   getAudioUrl,
@@ -41,6 +44,13 @@ import {
   setActiveChatSessionId,
   type ChatSession,
 } from "./src/utils/chatStorage";
+import {
+  emptyUserProfile,
+  formatUserProfileForPrompt,
+  loadUserProfile,
+  saveUserProfile,
+  type UserProfile,
+} from "./src/utils/profileStorage";
 
 const starterMessages: ChatMessage[] = [
   {
@@ -51,6 +61,7 @@ const starterMessages: ChatMessage[] = [
   },
 ];
 const AUTO_SCROLL_THRESHOLD = 96;
+type AppScreen = "chat" | "settings";
 
 export default function App() {
   const { width } = useWindowDimensions();
@@ -62,6 +73,8 @@ export default function App() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeScreen, setActiveScreen] = useState<AppScreen>("chat");
+  const [userProfile, setUserProfile] = useState<UserProfile>(emptyUserProfile);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -72,6 +85,13 @@ export default function App() {
   const loadingRef = useRef(false);
   const streamingRef = useRef(false);
   const showSidebar = width >= 760;
+  const t = getTranslator(userProfile.language);
+  const localizedStarterMessages: ChatMessage[] = [
+    {
+      ...starterMessages[0]!,
+      text: t("welcome"),
+    },
+  ];
 
   function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -145,7 +165,7 @@ export default function App() {
     );
     const title = firstUserMessage
       ? firstUserMessage.text.trim().replace(/\s+/g, " ").slice(0, 18)
-      : "新的问事";
+      : t("newSession");
     const updatedSession: ChatSession = {
       backendSessionId:
         currentSessions.find((session) => session.id === targetSessionId)?.backendSessionId ??
@@ -171,7 +191,7 @@ export default function App() {
             sessions.find((session) => session.id === activeId) ?? sessions[0] ?? null;
 
           if (!activeSession) {
-            activeSession = createChatSession(starterMessages);
+            activeSession = createChatSession(localizedStarterMessages);
             sessions = [activeSession];
             await saveChatSessions(sessions);
           }
@@ -182,13 +202,32 @@ export default function App() {
           setBackendSessionId(activeSession.backendSessionId);
           messagesRef.current = activeSession.messages.length
             ? activeSession.messages
-            : starterMessages;
+            : localizedStarterMessages;
           setMessages(messagesRef.current);
         }
       })
       .catch(() => {
         if (mounted) {
-          setError("会话初始化失败,请重启应用后再试。");
+          setError(t("chatInitFailed"));
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void loadUserProfile()
+      .then((profile) => {
+        if (mounted) {
+          setUserProfile(profile);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setError(t("profileLoadFailed"));
         }
       });
 
@@ -206,7 +245,7 @@ export default function App() {
     await setActiveChatSessionId(session.id);
     setSessionId(session.id);
     setBackendSessionId(session.backendSessionId);
-    messagesRef.current = session.messages.length ? session.messages : starterMessages;
+    messagesRef.current = session.messages.length ? session.messages : localizedStarterMessages;
     setMessages(messagesRef.current);
     setHistoryOpen(false);
     setError(null);
@@ -219,15 +258,15 @@ export default function App() {
     }
 
     stopActiveAudio();
-    const nextSession = createChatSession(starterMessages);
+    const nextSession = createChatSession(localizedStarterMessages);
     const nextSessions = [nextSession, ...chatSessions];
     await saveChatSessions(nextSessions);
     await setActiveChatSessionId(nextSession.id);
     setChatSessions(nextSessions);
     setSessionId(nextSession.id);
     setBackendSessionId(nextSession.backendSessionId);
-    messagesRef.current = starterMessages;
-    setMessages(starterMessages);
+    messagesRef.current = localizedStarterMessages;
+    setMessages(localizedStarterMessages);
     setHistoryOpen(false);
     setError(null);
     revealLatestMessage();
@@ -239,15 +278,15 @@ export default function App() {
     }
 
     stopActiveAudio();
-    const nextSession = createChatSession(starterMessages);
+    const nextSession = createChatSession(localizedStarterMessages);
     await clearAllChatSessions();
     await saveChatSessions([nextSession]);
     await setActiveChatSessionId(nextSession.id);
     setChatSessions([nextSession]);
     setSessionId(nextSession.id);
     setBackendSessionId(nextSession.backendSessionId);
-    messagesRef.current = starterMessages;
-    setMessages(starterMessages);
+    messagesRef.current = localizedStarterMessages;
+    setMessages(localizedStarterMessages);
     setHistoryOpen(false);
     setError(null);
     revealLatestMessage();
@@ -259,7 +298,7 @@ export default function App() {
     }
 
     stopActiveAudio();
-    const nextSession = createChatSession(starterMessages);
+    const nextSession = createChatSession(localizedStarterMessages);
     const nextSessions = [
       nextSession,
       ...chatSessions.filter((session) => session.id !== sessionId),
@@ -269,11 +308,20 @@ export default function App() {
     setChatSessions(nextSessions);
     setSessionId(nextSession.id);
     setBackendSessionId(nextSession.backendSessionId);
-    messagesRef.current = starterMessages;
-    setMessages(starterMessages);
+    messagesRef.current = localizedStarterMessages;
+    setMessages(localizedStarterMessages);
     setHistoryOpen(false);
     setError(null);
     revealLatestMessage();
+  }
+
+  async function handleSaveProfile() {
+    try {
+      await saveUserProfile(userProfile);
+      setActiveScreen("chat");
+    } catch {
+      setError(t("profileSaveFailed"));
+    }
   }
 
   function confirmClearAllHistory() {
@@ -282,12 +330,12 @@ export default function App() {
     }
 
     Alert.alert(
-      "清空所有历史记录?",
-      "所有本地聊天历史都会被移除，并开启一段新的对话。后端已保存的 Redis 记忆不会被删除。",
+      t("clearAllHistoryTitle"),
+      t("clearAllHistoryMessage"),
       [
-        { text: "取消", style: "cancel" },
+        { text: t("cancel"), style: "cancel" },
         {
-          text: "全部清空",
+          text: t("clearAll"),
           style: "destructive",
           onPress: () => {
             void clearAllHistory();
@@ -303,12 +351,12 @@ export default function App() {
     }
 
     Alert.alert(
-      "清空当前会话?",
-      "当前聊天记录会从本机移除，并开启一段新的对话。其他历史会话会保留。",
+      t("clearCurrentTitle"),
+      t("clearCurrentMessage"),
       [
-        { text: "取消", style: "cancel" },
+        { text: t("cancel"), style: "cancel" },
         {
-          text: "清空当前",
+          text: t("clearCurrent"),
           style: "destructive",
           onPress: () => {
             void clearCurrentSession();
@@ -437,7 +485,7 @@ export default function App() {
       await retryAudio(message.id, message.text, message.mood ?? "default");
       void pollAudio(message.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "语音重试失败,请稍后再试。");
+      setError(e instanceof Error ? e.message : t("retryAudioFailed"));
       updateMessages(
         (current) =>
           current.map((item) =>
@@ -575,7 +623,7 @@ export default function App() {
       }
     } catch (e) {
       if (receivedStreamStart) {
-        setError(e instanceof Error ? e.message : "流式回复中断,请稍后再试。");
+        setError(e instanceof Error ? e.message : t("streamingInterrupted"));
         loadingRef.current = false;
         streamingRef.current = false;
         setLoading(false);
@@ -594,7 +642,7 @@ export default function App() {
         return;
       }
 
-      setError(e instanceof Error ? e.message : "流式回复失败,请稍后再试。");
+      setError(e instanceof Error ? e.message : t("streamingFailed"));
       loadingRef.current = false;
       streamingRef.current = false;
       setLoading(false);
@@ -623,10 +671,15 @@ export default function App() {
     setLoading(true);
     setError(null);
 
+    const profileContext = formatUserProfileForPrompt(userProfile);
+    const messageForAi = profileContext
+      ? `${profileContext}\n\n${t("userQuestionPrefix")}: ${text}`
+      : text;
+
     try {
-      await sendWithFallback(text, backendSessionId, sessionId);
+      await sendWithFallback(messageForAi, backendSessionId, sessionId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "请求失败,请稍后再试。");
+      setError(e instanceof Error ? e.message : t("requestFailed"));
       loadingRef.current = false;
       streamingRef.current = false;
       setLoading(false);
@@ -637,7 +690,7 @@ export default function App() {
   function renderSessionItems() {
     return chatSessions.map((session) => {
       const visibleMessages = session.messages.filter((message) => message.id !== "welcome");
-      const preview = visibleMessages[visibleMessages.length - 1]?.text.trim() || "尚未开始";
+      const preview = visibleMessages[visibleMessages.length - 1]?.text.trim() || t("newSession");
       const isActive = session.id === sessionId;
       return (
         <Pressable
@@ -662,7 +715,7 @@ export default function App() {
     return (
       <View style={styles.historySurface}>
         <View style={styles.historyHeader}>
-          <Text style={styles.historyTitle}>历史会话</Text>
+          <Text style={styles.historyTitle}>{t("history")}</Text>
           <Pressable
             accessibilityRole="button"
             disabled={loading || streaming}
@@ -670,7 +723,7 @@ export default function App() {
             style={styles.newSessionButton}
           >
             <Ionicons name="add" size={16} color="#ffffff" />
-            <Text style={styles.newSessionText}>新会话</Text>
+            <Text style={styles.newSessionText}>{t("newSession")}</Text>
           </Pressable>
         </View>
         <ScrollView
@@ -702,8 +755,8 @@ export default function App() {
               <Text style={styles.sealSmallText}>命</Text>
             </View>
             <View style={styles.drawerBrandText}>
-              <Text style={styles.drawerTitle}>陈玉楼大师</Text>
-              <Text style={styles.drawerSubtitle}>Native AI fortune chat</Text>
+              <Text style={styles.drawerTitle}>{t("appTitle")}</Text>
+              <Text style={styles.drawerSubtitle}>{t("appSubtitle")}</Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -715,7 +768,33 @@ export default function App() {
           </View>
 
           <View style={styles.drawerSection}>
-            <Text style={styles.drawerSectionTitle}>会话</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setHistoryOpen(false);
+                setActiveScreen("settings");
+              }}
+              style={styles.drawerMenuItem}
+            >
+              <View style={styles.drawerMenuIcon}>
+                <Ionicons name="person-outline" size={16} color="#8d3f2d" />
+              </View>
+              <View style={styles.drawerMenuText}>
+                <Text style={styles.drawerMenuTitle}>{t("personalSettings")}</Text>
+                <Text style={styles.drawerMenuSubtitle}>
+                  {userProfile.name || userProfile.birthDate ? t("profileSaved") : t("profileSummaryEmpty")}
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color="#7b6b57"
+              />
+            </Pressable>
+          </View>
+
+          <View style={styles.drawerSection}>
+            <Text style={styles.drawerSectionTitle}>{t("history")}</Text>
             <View style={styles.drawerActionRow}>
               <Pressable
                 accessibilityRole="button"
@@ -724,7 +803,7 @@ export default function App() {
                 style={styles.drawerPrimaryAction}
               >
                 <Ionicons name="add" size={16} color="#ffffff" />
-                <Text style={styles.drawerPrimaryActionText}>新会话</Text>
+                <Text style={styles.drawerPrimaryActionText}>{t("newSession")}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -733,13 +812,13 @@ export default function App() {
                 style={styles.drawerSecondaryAction}
               >
                 <Ionicons name="trash-outline" size={16} color="#8d3f2d" />
-                <Text style={styles.drawerSecondaryActionText}>清空历史</Text>
+                <Text style={styles.drawerSecondaryActionText}>{t("clearAllHistory")}</Text>
               </Pressable>
             </View>
           </View>
 
           <View style={[styles.drawerSection, styles.drawerHistorySection]}>
-            <Text style={styles.drawerSectionTitle}>历史记录</Text>
+            <Text style={styles.drawerSectionTitle}>{t("historyRecords")}</Text>
             <ScrollView
               style={styles.drawerHistoryList}
               contentContainerStyle={styles.historyListContent}
@@ -750,13 +829,185 @@ export default function App() {
           </View>
 
           <View style={styles.drawerSection}>
-            <Text style={styles.drawerSectionTitle}>服务状态</Text>
+            <Text style={styles.drawerSectionTitle}>{t("serviceStatus")}</Text>
             <View style={styles.drawerStatusRow}>
               <View style={styles.statusDot} />
-              <Text style={styles.drawerStatusText}>API 已连接</Text>
+              <Text style={styles.drawerStatusText}>{t("apiConnected")}</Text>
             </View>
           </View>
         </View>
+      </View>
+    );
+  }
+
+  function renderSettingsScreen() {
+    return (
+      <View style={styles.settingsShell}>
+        <View style={styles.settingsHeader}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setActiveScreen("chat")}
+            style={styles.iconButton}
+          >
+            <Ionicons name="chevron-back" size={20} color="#5c4a37" />
+          </Pressable>
+          <Text style={styles.settingsTitle}>{t("personalSettings")}</Text>
+          <View style={styles.headerSide} />
+        </View>
+
+        <ScrollView
+          style={styles.settingsScroller}
+          contentContainerStyle={styles.settingsContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.settingsSection}>
+            <Text style={styles.settingsSectionTitle}>{t("personalInfo")}</Text>
+            <View style={styles.profileForm}>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("name")}</Text>
+                <TextInput
+                  value={userProfile.name}
+                  onChangeText={(name) => setUserProfile((profile) => ({ ...profile, name }))}
+                  placeholder={t("namePlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={styles.profileInput}
+                />
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("gender")}</Text>
+                <TextInput
+                  value={userProfile.gender}
+                  onChangeText={(gender) => setUserProfile((profile) => ({ ...profile, gender }))}
+                  placeholder={t("genderPlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={styles.profileInput}
+                />
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("birthDate")}</Text>
+                <TextInput
+                  value={userProfile.birthDate}
+                  onChangeText={(birthDate) => setUserProfile((profile) => ({ ...profile, birthDate }))}
+                  placeholder={t("birthDatePlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={styles.profileInput}
+                />
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("birthTime")}</Text>
+                <TextInput
+                  value={userProfile.birthTime}
+                  onChangeText={(birthTime) => setUserProfile((profile) => ({ ...profile, birthTime }))}
+                  placeholder={t("birthTimePlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={styles.profileInput}
+                />
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("birthPlace")}</Text>
+                <TextInput
+                  value={userProfile.birthPlace}
+                  onChangeText={(birthPlace) => setUserProfile((profile) => ({ ...profile, birthPlace }))}
+                  placeholder={t("birthPlacePlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={styles.profileInput}
+                />
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("notes")}</Text>
+                <TextInput
+                  multiline
+                  value={userProfile.notes}
+                  onChangeText={(notes) => setUserProfile((profile) => ({ ...profile, notes }))}
+                  placeholder={t("notesPlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={[styles.profileInput, styles.profileNotesInput]}
+                />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={styles.settingsSectionTitle}>{t("preferences")}</Text>
+            <View style={styles.settingSwitchRow}>
+              <View style={styles.settingSwitchText}>
+                <Text style={styles.settingSwitchTitle}>{t("language")}</Text>
+                <Text style={styles.settingSwitchSubtitle}>{t("languageSubtitle")}</Text>
+              </View>
+              <View style={styles.languageToggle}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setUserProfile((profile) => ({ ...profile, language: "zh" }))}
+                  style={[
+                    styles.languageOption,
+                    userProfile.language === "zh" && styles.languageOptionActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.languageOptionText,
+                      userProfile.language === "zh" && styles.languageOptionTextActive,
+                    ]}
+                  >
+                    {t("languageZh")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setUserProfile((profile) => ({ ...profile, language: "en" }))}
+                  style={[
+                    styles.languageOption,
+                    userProfile.language === "en" && styles.languageOptionActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.languageOptionText,
+                      userProfile.language === "en" && styles.languageOptionTextActive,
+                    ]}
+                  >
+                    {t("languageEn")}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+            <View style={styles.settingSwitchRow}>
+              <View style={styles.settingSwitchText}>
+                <Text style={styles.settingSwitchTitle}>{t("autoPlayTitle")}</Text>
+                <Text style={styles.settingSwitchSubtitle}>{t("autoPlaySubtitle")}</Text>
+              </View>
+              <Switch
+                value={userProfile.autoPlayVoice}
+                onValueChange={(autoPlayVoice) =>
+                  setUserProfile((profile) => ({ ...profile, autoPlayVoice }))
+                }
+                thumbColor={userProfile.autoPlayVoice ? "#8d3f2d" : "#f4eadc"}
+                trackColor={{ false: "#d8c8b3", true: "#d9a596" }}
+              />
+            </View>
+            <View style={styles.settingSwitchRow}>
+              <View style={styles.settingSwitchText}>
+                <Text style={styles.settingSwitchTitle}>{t("darkModeTitle")}</Text>
+                <Text style={styles.settingSwitchSubtitle}>{t("darkModeSubtitle")}</Text>
+              </View>
+              <Switch
+                value={userProfile.darkMode}
+                onValueChange={(darkMode) => setUserProfile((profile) => ({ ...profile, darkMode }))}
+                thumbColor={userProfile.darkMode ? "#8d3f2d" : "#f4eadc"}
+                trackColor={{ false: "#d8c8b3", true: "#d9a596" }}
+              />
+            </View>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={handleSaveProfile}
+            style={styles.settingsSaveButton}
+          >
+            <Ionicons name="save-outline" size={17} color="#ffffff" />
+            <Text style={styles.settingsSaveText}>{t("saveSettings")}</Text>
+          </Pressable>
+        </ScrollView>
       </View>
     );
   }
@@ -765,7 +1016,7 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <ExpoStatusBar style="dark" />
       <View style={styles.container}>
-        <View style={[styles.appFrame, showSidebar && styles.appFrameWide]}>
+        {activeScreen === "settings" ? renderSettingsScreen() : <View style={[styles.appFrame, showSidebar && styles.appFrameWide]}>
           {showSidebar ? <View style={styles.sidebar}>{renderHistoryList()}</View> : null}
           <View style={styles.shell}>
           <View style={styles.header}>
@@ -785,7 +1036,7 @@ export default function App() {
               <View style={styles.seal}>
                 <Text style={styles.sealText}>命</Text>
               </View>
-              <Text style={styles.title}>陈玉楼大师</Text>
+              <Text style={styles.title}>{t("appTitle")}</Text>
             </View>
             <View style={styles.headerSide}>
               <Pressable
@@ -817,12 +1068,28 @@ export default function App() {
             }}
           >
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} onRetryAudio={handleRetryAudio} />
+              <MessageBubble
+                key={message.id}
+                audioLabels={{
+                  buffering: t("audioBuffering"),
+                  play: t("playVoice"),
+                  replay: t("replayVoice"),
+                  stop: t("stopVoice"),
+                }}
+                labels={{
+                  audioFailed: t("audioFailed"),
+                  audioPending: t("audioPending"),
+                  mood: t("moodLabel"),
+                  retryAudio: t("retryAudio"),
+                }}
+                message={message}
+                onRetryAudio={handleRetryAudio}
+              />
             ))}
             {loading ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color="#8d3f2d" />
-                <Text style={styles.loadingText}>大师掐指推演中...</Text>
+                <Text style={styles.loadingText}>{t("loadingReply")}</Text>
               </View>
             ) : null}
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -835,7 +1102,7 @@ export default function App() {
               style={[styles.newMessageButton, { bottom: keyboardHeight + 92 }]}
             >
               <Ionicons name="arrow-down" size={15} color="#ffffff" />
-              <Text style={styles.newMessageText}>新消息</Text>
+              <Text style={styles.newMessageText}>{t("newMessage")}</Text>
             </Pressable>
           ) : null}
 
@@ -843,13 +1110,17 @@ export default function App() {
             <Composer
               busy={loading || streaming}
               disabled={!sessionId || !backendSessionId || loading || streaming}
+              labels={{
+                busyPlaceholder: t("composerBusyPlaceholder"),
+                placeholder: t("composerPlaceholder"),
+              }}
               value={input}
               onChangeText={setInput}
               onSend={handleSend}
             />
           </View>
           </View>
-        </View>
+        </View>}
       </View>
     </SafeAreaView>
   );
@@ -1148,6 +1419,187 @@ const styles = StyleSheet.create({
     color: "#5c4a37",
     fontSize: 13,
     fontWeight: "700",
+  },
+  settingsShell: {
+    alignSelf: "center",
+    flex: 1,
+    maxWidth: 760,
+    width: "100%",
+  },
+  settingsHeader: {
+    alignItems: "center",
+    borderBottomColor: "#dccdb9",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 66,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  settingsTitle: {
+    color: "#1f2528",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  settingsScroller: {
+    flex: 1,
+  },
+  settingsContent: {
+    gap: 14,
+    padding: 18,
+    paddingBottom: 30,
+  },
+  settingsSection: {
+    backgroundColor: "#fffaf3",
+    borderColor: "#e2d2bd",
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 14,
+  },
+  settingsSectionTitle: {
+    color: "#1f2528",
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 12,
+  },
+  settingSwitchRow: {
+    alignItems: "center",
+    borderTopColor: "#eadcc9",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+    paddingVertical: 12,
+  },
+  settingSwitchText: {
+    flex: 1,
+  },
+  settingSwitchTitle: {
+    color: "#2b261f",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  settingSwitchSubtitle: {
+    color: "#7b6b57",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  languageToggle: {
+    alignItems: "center",
+    backgroundColor: "#f2e6d7",
+    borderColor: "#dccdb9",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    padding: 3,
+  },
+  languageOption: {
+    borderRadius: 6,
+    minWidth: 58,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  languageOptionActive: {
+    backgroundColor: "#8d3f2d",
+  },
+  languageOptionText: {
+    color: "#7b6b57",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  languageOptionTextActive: {
+    color: "#ffffff",
+  },
+  settingsSaveButton: {
+    alignItems: "center",
+    backgroundColor: "#8d3f2d",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    paddingVertical: 13,
+  },
+  settingsSaveText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  drawerMenuItem: {
+    alignItems: "center",
+    backgroundColor: "#fffaf3",
+    borderColor: "#e2d2bd",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  drawerMenuIcon: {
+    alignItems: "center",
+    backgroundColor: "#fff4ea",
+    borderRadius: 7,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  drawerMenuText: {
+    flex: 1,
+  },
+  drawerMenuTitle: {
+    color: "#2b261f",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  drawerMenuSubtitle: {
+    color: "#7b6b57",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  profileForm: {
+    gap: 9,
+    marginTop: 10,
+  },
+  profileRow: {
+    gap: 5,
+  },
+  profileLabel: {
+    color: "#7b6b57",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  profileInput: {
+    backgroundColor: "#fffaf3",
+    borderColor: "#e2d2bd",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#2b261f",
+    fontSize: 13,
+    minHeight: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  profileNotesInput: {
+    maxHeight: 92,
+    minHeight: 62,
+    textAlignVertical: "top",
+  },
+  profileSaveButton: {
+    alignItems: "center",
+    backgroundColor: "#8d3f2d",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 5,
+    justifyContent: "center",
+    marginTop: 2,
+    paddingVertical: 9,
+  },
+  profileSaveText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "900",
   },
   historyItem: {
     backgroundColor: "#fffaf3",

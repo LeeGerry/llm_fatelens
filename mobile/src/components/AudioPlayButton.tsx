@@ -1,9 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { setAudioModeAsync, setIsAudioActiveAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 
 type Props = {
+  labels: {
+    buffering: string;
+    play: string;
+    replay: string;
+    stop: string;
+  };
   url: string;
 };
 
@@ -35,6 +41,15 @@ function clearAudioController(controllerId: string) {
   }
 }
 
+function safelyPauseAndReset(player: ReturnType<typeof useAudioPlayer>) {
+  try {
+    player.pause();
+    void player.seekTo(0);
+  } catch {
+    // Native player can be released during reloads, route switches, or rapid repeated taps.
+  }
+}
+
 export function stopActiveAudio() {
   if (activeAudioController) {
     safelyStopAudio(activeAudioController);
@@ -42,7 +57,7 @@ export function stopActiveAudio() {
   }
 }
 
-export function AudioPlayButton({ url }: Props) {
+export function AudioPlayButton({ labels, url }: Props) {
   const [activated, setActivated] = useState(false);
 
   if (!activated) {
@@ -53,72 +68,86 @@ export function AudioPlayButton({ url }: Props) {
         style={styles.audioButton}
       >
         <Ionicons name="play" size={14} color="#ffffff" />
-        <Text style={styles.audioButtonText}>播放语音</Text>
+        <Text style={styles.audioButtonText}>{labels.play}</Text>
       </Pressable>
     );
   }
 
-  return <ActivatedAudioPlayButton url={url} />;
+  return <ActivatedAudioPlayButton labels={labels} url={url} />;
 }
 
-function ActivatedAudioPlayButton({ url }: Props) {
+function ActivatedAudioPlayButton({ labels, url }: Props) {
   const controllerIdRef = useRef(`audio-${Date.now()}-${Math.random()}`);
   const [hasPlayed, setHasPlayed] = useState(false);
-  const player = useAudioPlayer(url, { updateInterval: 250 });
+  const [playRequested, setPlayRequested] = useState(true);
+  const player = useAudioPlayer({ uri: url }, { updateInterval: 250, keepAudioSessionActive: true });
   const status = useAudioPlayerStatus(player);
   const isPlaying = status.playing;
   const isBuffering = status.isBuffering;
+  const isLoaded = status.isLoaded;
   const isFinished = status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration);
 
-  useEffect(() => {
-    void setAudioModeAsync({
+  async function prepareAudioSession() {
+    await setIsAudioActiveAsync(true);
+    await setAudioModeAsync({
       playsInSilentMode: true,
       interruptionMode: "doNotMix",
     });
-  }, []);
+  }
+
+  async function startPlayback() {
+    try {
+      setPlayRequested(true);
+      if (!isLoaded) {
+        return;
+      }
+      await prepareAudioSession();
+      makeAudioControllerActive({
+        id: controllerIdRef.current,
+        stop: () => safelyPauseAndReset(player),
+      });
+      if (isFinished) {
+        await player.seekTo(0);
+      }
+      setHasPlayed(true);
+      setPlayRequested(false);
+      player.play();
+    } catch (error) {
+      setPlayRequested(false);
+      clearAudioController(controllerIdRef.current);
+      console.warn("Audio playback failed", { error, url });
+    }
+  }
 
   useEffect(() => {
     const controller = {
       id: controllerIdRef.current,
-      stop: () => {
-        player.pause();
-        player.seekTo(0);
-      },
+      stop: () => safelyPauseAndReset(player),
     };
     makeAudioControllerActive(controller);
-    setHasPlayed(true);
-    player.play();
+    void startPlayback();
 
     return () => {
       clearAudioController(controller.id);
-      try {
-        player.pause();
-      } catch {
-        // Native player may already be released while switching chat sessions.
-      }
+      safelyPauseAndReset(player);
     };
   }, [player]);
 
+  useEffect(() => {
+    if (playRequested && isLoaded && !isPlaying) {
+      void startPlayback();
+    }
+  }, [playRequested, isLoaded, isPlaying]);
+
   function handlePress() {
     if (isPlaying) {
-      player.pause();
-      player.seekTo(0);
+      safelyPauseAndReset(player);
+      setPlayRequested(false);
       clearAudioController(controllerIdRef.current);
       return;
     }
 
-    makeAudioControllerActive({
-      id: controllerIdRef.current,
-      stop: () => {
-        player.pause();
-        player.seekTo(0);
-      },
-    });
-    if (isFinished) {
-      player.seekTo(0);
-    }
-    setHasPlayed(true);
-    player.play();
+    void startPlayback();
   }
 
   useEffect(() => {
@@ -135,7 +164,7 @@ function ActivatedAudioPlayButton({ url }: Props) {
     >
       <Ionicons name={isPlaying ? "pause" : "play"} size={14} color="#ffffff" />
       <Text style={styles.audioButtonText}>
-        {isBuffering ? "加载中" : isPlaying ? "停止播放" : hasPlayed ? "重新播放" : "播放语音"}
+        {isBuffering ? labels.buffering : isPlaying ? labels.stop : hasPlayed ? labels.replay : labels.play}
       </Text>
     </Pressable>
   );

@@ -6,11 +6,23 @@ import { SimpleMarkdown } from "./SimpleMarkdown";
 import type { ChatMessage } from "../types/chat";
 
 type Props = {
+  audioLabels: {
+    buffering: string;
+    play: string;
+    replay: string;
+    stop: string;
+  };
+  labels: {
+    audioFailed: string;
+    audioPending: string;
+    mood: string;
+    retryAudio: string;
+  };
   message: ChatMessage;
   onRetryAudio?: (message: ChatMessage) => void;
 };
 
-export function MessageBubble({ message, onRetryAudio }: Props) {
+export function MessageBubble({ audioLabels, labels, message, onRetryAudio }: Props) {
   const isUser = message.role === "user";
   const canPlay = !isUser && message.audioStatus === "ready" && message.audioUrl;
   const toolsUsed = message.toolsUsed ?? [];
@@ -25,7 +37,11 @@ export function MessageBubble({ message, onRetryAudio }: Props) {
         )}
         {!isUser && (
           <View style={styles.metaRow}>
-            {message.mood ? <Text style={styles.metaText}>[{message.mood}]</Text> : null}
+            {message.mood ? (
+              <Text style={styles.metaText}>
+                {labels.mood}[{message.mood}]
+              </Text>
+            ) : null}
             {toolsUsed.map((tool) => (
               <View key={tool} style={styles.toolTag}>
                 <Ionicons name="construct-outline" size={12} color="#8d3f2d" />
@@ -35,25 +51,25 @@ export function MessageBubble({ message, onRetryAudio }: Props) {
             {message.audioStatus === "pending" ? (
               <View style={styles.audioPending}>
                 <Ionicons name="time-outline" size={14} color="#7b6b57" />
-                <Text style={styles.metaText}>语音生成中</Text>
+                <Text style={styles.metaText}>{labels.audioPending}</Text>
               </View>
             ) : null}
             {message.audioStatus === "failed" ? (
               <>
                 <View style={styles.audioPending}>
                   <Ionicons name="alert-circle-outline" size={14} color="#a1352d" />
-                  <Text style={styles.errorMetaText}>语音生成失败</Text>
+                  <Text style={styles.errorMetaText}>{labels.audioFailed}</Text>
                 </View>
                 <Text
                   accessibilityRole="button"
                   onPress={() => onRetryAudio?.(message)}
                   style={styles.retryText}
                 >
-                  重试生成语音
+                  {labels.retryAudio}
                 </Text>
               </>
             ) : null}
-            {canPlay ? <AudioPlayButton url={message.audioUrl as string} /> : null}
+            {canPlay ? <AudioPlayButton labels={audioLabels} url={message.audioUrl as string} /> : null}
           </View>
         )}
       </View>
