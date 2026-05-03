@@ -75,6 +75,8 @@ def sanitize_text_for_tts(text: str) -> str:
     cleaned = text
     cleaned = re.sub(r"```[\s\S]*?```", " ", cleaned)
     cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    cleaned = re.sub(r"（[^）]{1,80}）", " ", cleaned)
+    cleaned = re.sub(r"\([^)]{1,80}\)", " ", cleaned)
     cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", cleaned)
     cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
     cleaned = re.sub(r"^\s{0,3}#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
