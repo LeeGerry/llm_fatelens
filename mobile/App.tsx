@@ -16,6 +16,9 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -61,7 +64,26 @@ const starterMessages: ChatMessage[] = [
   },
 ];
 const AUTO_SCROLL_THRESHOLD = 96;
-type AppScreen = "chat" | "settings";
+type AppScreen = "bazi" | "chat" | "settings";
+type BaziCalendarType = "lunar" | "solar";
+type BaziPickerMode = "date" | "time" | null;
+type BaziForm = {
+  birthCity: string;
+  birthDate: string;
+  birthTime: string;
+  calendarType: BaziCalendarType;
+  gender: string;
+  name: string;
+};
+
+const emptyBaziForm: BaziForm = {
+  birthCity: "",
+  birthDate: "",
+  birthTime: "",
+  calendarType: "solar",
+  gender: "",
+  name: "",
+};
 
 export default function App() {
   const { width } = useWindowDimensions();
@@ -74,6 +96,8 @@ export default function App() {
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState<AppScreen>("chat");
+  const [baziForm, setBaziForm] = useState<BaziForm>(emptyBaziForm);
+  const [baziPickerMode, setBaziPickerMode] = useState<BaziPickerMode>(null);
   const [userProfile, setUserProfile] = useState<UserProfile>(emptyUserProfile);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
@@ -132,6 +156,67 @@ export default function App() {
     shouldFollowScrollRef.current = true;
     setHasUnreadMessages(false);
     scrollToBottom();
+  }
+
+  function formatDateValue(date: Date) {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function formatTimeValue(date: Date) {
+    const hours = `${date.getHours()}`.padStart(2, "0");
+    const minutes = `${date.getMinutes()}`.padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }
+
+  function dateFromBaziValue() {
+    const [year, month, day] = baziForm.birthDate.split("-").map(Number);
+    if (year && month && day) {
+      return new Date(year, month - 1, day);
+    }
+    return new Date(1988, 0, 1);
+  }
+
+  function timeFromBaziValue() {
+    const date = new Date();
+    const [rawHours, rawMinutes] = baziForm.birthTime.split(":").map(Number);
+    const hours = Number.isFinite(rawHours) ? rawHours as number : 7;
+    const minutes = Number.isFinite(rawMinutes) ? rawMinutes as number : 30;
+    date.setHours(hours);
+    date.setMinutes(minutes);
+    date.setSeconds(0);
+    date.setMilliseconds(0);
+    return date;
+  }
+
+  function handleBaziPickerChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    if (Platform.OS === "android") {
+      setBaziPickerMode(null);
+    }
+    if (event.type === "dismissed" || !selectedDate) {
+      return;
+    }
+    if (baziPickerMode === "date") {
+      setBaziForm((form) => ({ ...form, birthDate: formatDateValue(selectedDate) }));
+    }
+    if (baziPickerMode === "time") {
+      setBaziForm((form) => ({ ...form, birthTime: formatTimeValue(selectedDate) }));
+    }
+  }
+
+  function openBaziScreen() {
+    setBaziForm({
+      birthCity: userProfile.birthPlace,
+      birthDate: userProfile.birthDate,
+      birthTime: userProfile.birthTime,
+      calendarType: "solar",
+      gender: userProfile.gender,
+      name: userProfile.name,
+    });
+    setHistoryOpen(false);
+    setActiveScreen("bazi");
   }
 
   function markUnreadIfPaused() {
@@ -496,6 +581,21 @@ export default function App() {
     }
   }
 
+  function buildBaziPrompt(form: BaziForm) {
+    const calendarLabel =
+      form.calendarType === "lunar" ? t("baziCalendarLunar") : t("baziCalendarSolar");
+    return [
+      "请为我做一次八字测算。以下信息来自 App 的八字快捷表单,请优先按结构化信息调用八字测算工具；如果工具不可用,请基于这些信息做一般性命理分析。",
+      `姓名: ${form.name.trim()}`,
+      `性别: ${form.gender.trim()}`,
+      `日历类型: ${calendarLabel}`,
+      `出生日期: ${form.birthDate.trim()}`,
+      `出生时间: ${form.birthTime.trim()}`,
+      `出生城市: ${form.birthCity.trim()}`,
+      "请从整体命格、事业、财运、感情、健康习惯和近期建议几个方面回答，并遵守娱乐/传统文化参考的边界。",
+    ].join("\n");
+  }
+
   async function sendNonStreaming(text: string, currentBackendSessionId: string) {
     const response = await sendChat(text, currentBackendSessionId);
     const masterMessage: ChatMessage = {
@@ -650,16 +750,15 @@ export default function App() {
     }
   }
 
-  async function handleSend() {
-    const text = input.trim();
-    if (!text || !sessionId || !backendSessionId || loading || streaming) {
+  async function sendText(displayText: string, aiText = displayText) {
+    if (!displayText || !aiText || !sessionId || !backendSessionId || loading || streaming) {
       return;
     }
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
-      text,
+      text: displayText,
     };
 
     updateMessages((current) => [...current, userMessage], { persist: true });
@@ -673,8 +772,8 @@ export default function App() {
 
     const profileContext = formatUserProfileForPrompt(userProfile);
     const messageForAi = profileContext
-      ? `${profileContext}\n\n${t("userQuestionPrefix")}: ${text}`
-      : text;
+      ? `${profileContext}\n\n${t("userQuestionPrefix")}: ${aiText}`
+      : aiText;
 
     try {
       await sendWithFallback(messageForAi, backendSessionId, sessionId);
@@ -685,6 +784,53 @@ export default function App() {
       setLoading(false);
       setStreaming(false);
     }
+  }
+
+  async function handleSend() {
+    const text = input.trim();
+    if (!text) {
+      return;
+    }
+    setInput("");
+    await sendText(text);
+  }
+
+  async function handleBaziSubmit() {
+    const nextForm = {
+      ...baziForm,
+      birthCity: baziForm.birthCity.trim(),
+      birthDate: baziForm.birthDate.trim(),
+      birthTime: baziForm.birthTime.trim(),
+      gender: baziForm.gender.trim(),
+      name: baziForm.name.trim(),
+    };
+    if (
+      !nextForm.name ||
+      !nextForm.gender ||
+      !nextForm.birthDate ||
+      !nextForm.birthTime ||
+      !nextForm.birthCity
+    ) {
+      setError(t("baziMissingInfo"));
+      return;
+    }
+
+    const nextProfile = {
+      ...userProfile,
+      birthDate: nextForm.birthDate,
+      birthPlace: nextForm.birthCity,
+      birthTime: nextForm.birthTime,
+      gender: nextForm.gender,
+      name: nextForm.name,
+    };
+    setBaziForm(nextForm);
+    setUserProfile(nextProfile);
+    void saveUserProfile(nextProfile);
+    setActiveScreen("chat");
+    setError(null);
+
+    const displayText = `${t("baziUserMessage")}: ${nextForm.name} ${nextForm.birthDate} ${nextForm.birthTime}`;
+    await sendText(displayText, buildBaziPrompt(nextForm));
   }
 
   function renderSessionItems() {
@@ -724,6 +870,26 @@ export default function App() {
           >
             <Ionicons name="add" size={16} color="#ffffff" />
             <Text style={styles.newSessionText}>{t("newSession")}</Text>
+          </Pressable>
+        </View>
+        <View style={styles.sidebarQuickActions}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={loading || streaming}
+            onPress={() => setActiveScreen("settings")}
+            style={styles.sidebarQuickButton}
+          >
+            <Ionicons name="person-outline" size={15} color="#8d3f2d" />
+            <Text style={styles.sidebarQuickButtonText}>{t("personalSettings")}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={loading || streaming}
+            onPress={openBaziScreen}
+            style={styles.sidebarQuickButton}
+          >
+            <Ionicons name="calendar-outline" size={15} color="#8d3f2d" />
+            <Text style={styles.sidebarQuickButtonText}>{t("baziQuickForm")}</Text>
           </Pressable>
         </View>
         <ScrollView
@@ -781,8 +947,26 @@ export default function App() {
               </View>
               <View style={styles.drawerMenuText}>
                 <Text style={styles.drawerMenuTitle}>{t("personalSettings")}</Text>
+                <Text style={styles.drawerMenuSubtitle}>{t("preferences")}</Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color="#7b6b57"
+              />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={openBaziScreen}
+              style={[styles.drawerMenuItem, styles.drawerMenuItemSpacing]}
+            >
+              <View style={styles.drawerMenuIcon}>
+                <Ionicons name="calendar-outline" size={16} color="#8d3f2d" />
+              </View>
+              <View style={styles.drawerMenuText}>
+                <Text style={styles.drawerMenuTitle}>{t("baziQuickForm")}</Text>
                 <Text style={styles.drawerMenuSubtitle}>
-                  {userProfile.name || userProfile.birthDate ? t("profileSaved") : t("profileSummaryEmpty")}
+                  {userProfile.name || userProfile.birthDate ? t("profileSaved") : t("baziFormHint")}
                 </Text>
               </View>
               <Ionicons
@@ -860,73 +1044,6 @@ export default function App() {
           contentContainerStyle={styles.settingsContent}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.settingsSection}>
-            <Text style={styles.settingsSectionTitle}>{t("personalInfo")}</Text>
-            <View style={styles.profileForm}>
-              <View style={styles.profileRow}>
-                <Text style={styles.profileLabel}>{t("name")}</Text>
-                <TextInput
-                  value={userProfile.name}
-                  onChangeText={(name) => setUserProfile((profile) => ({ ...profile, name }))}
-                  placeholder={t("namePlaceholder")}
-                  placeholderTextColor="#a18d73"
-                  style={styles.profileInput}
-                />
-              </View>
-              <View style={styles.profileRow}>
-                <Text style={styles.profileLabel}>{t("gender")}</Text>
-                <TextInput
-                  value={userProfile.gender}
-                  onChangeText={(gender) => setUserProfile((profile) => ({ ...profile, gender }))}
-                  placeholder={t("genderPlaceholder")}
-                  placeholderTextColor="#a18d73"
-                  style={styles.profileInput}
-                />
-              </View>
-              <View style={styles.profileRow}>
-                <Text style={styles.profileLabel}>{t("birthDate")}</Text>
-                <TextInput
-                  value={userProfile.birthDate}
-                  onChangeText={(birthDate) => setUserProfile((profile) => ({ ...profile, birthDate }))}
-                  placeholder={t("birthDatePlaceholder")}
-                  placeholderTextColor="#a18d73"
-                  style={styles.profileInput}
-                />
-              </View>
-              <View style={styles.profileRow}>
-                <Text style={styles.profileLabel}>{t("birthTime")}</Text>
-                <TextInput
-                  value={userProfile.birthTime}
-                  onChangeText={(birthTime) => setUserProfile((profile) => ({ ...profile, birthTime }))}
-                  placeholder={t("birthTimePlaceholder")}
-                  placeholderTextColor="#a18d73"
-                  style={styles.profileInput}
-                />
-              </View>
-              <View style={styles.profileRow}>
-                <Text style={styles.profileLabel}>{t("birthPlace")}</Text>
-                <TextInput
-                  value={userProfile.birthPlace}
-                  onChangeText={(birthPlace) => setUserProfile((profile) => ({ ...profile, birthPlace }))}
-                  placeholder={t("birthPlacePlaceholder")}
-                  placeholderTextColor="#a18d73"
-                  style={styles.profileInput}
-                />
-              </View>
-              <View style={styles.profileRow}>
-                <Text style={styles.profileLabel}>{t("notes")}</Text>
-                <TextInput
-                  multiline
-                  value={userProfile.notes}
-                  onChangeText={(notes) => setUserProfile((profile) => ({ ...profile, notes }))}
-                  placeholder={t("notesPlaceholder")}
-                  placeholderTextColor="#a18d73"
-                  style={[styles.profileInput, styles.profileNotesInput]}
-                />
-              </View>
-            </View>
-          </View>
-
           <View style={styles.settingsSection}>
             <Text style={styles.settingsSectionTitle}>{t("preferences")}</Text>
             <View style={styles.settingSwitchRow}>
@@ -1012,11 +1129,189 @@ export default function App() {
     );
   }
 
+  function renderBaziScreen() {
+    return (
+      <View style={styles.settingsShell}>
+        <View style={styles.settingsHeader}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setActiveScreen("chat")}
+            style={styles.iconButton}
+          >
+            <Ionicons name="chevron-back" size={20} color="#5c4a37" />
+          </Pressable>
+          <Text style={styles.settingsTitle}>{t("baziQuickForm")}</Text>
+          <View style={styles.headerSide} />
+        </View>
+
+        <ScrollView
+          style={styles.settingsScroller}
+          contentContainerStyle={styles.settingsContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.settingsSection}>
+            <Text style={styles.baziHint}>{t("baziFormHint")}</Text>
+            <View style={styles.profileForm}>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("name")}</Text>
+                <TextInput
+                  value={baziForm.name}
+                  onChangeText={(name) => setBaziForm((form) => ({ ...form, name }))}
+                  placeholder={t("namePlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={styles.profileInput}
+                />
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("gender")}</Text>
+                <View style={styles.languageToggle}>
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: baziForm.gender === t("genderMale") }}
+                    onPress={() => setBaziForm((form) => ({ ...form, gender: t("genderMale") }))}
+                    style={[
+                      styles.languageOption,
+                      baziForm.gender === t("genderMale") && styles.languageOptionActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionText,
+                        baziForm.gender === t("genderMale") && styles.languageOptionTextActive,
+                      ]}
+                    >
+                      {t("genderMale")}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: baziForm.gender === t("genderFemale") }}
+                    onPress={() => setBaziForm((form) => ({ ...form, gender: t("genderFemale") }))}
+                    style={[
+                      styles.languageOption,
+                      baziForm.gender === t("genderFemale") && styles.languageOptionActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionText,
+                        baziForm.gender === t("genderFemale") && styles.languageOptionTextActive,
+                      ]}
+                    >
+                      {t("genderFemale")}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("calendarType")}</Text>
+                <View style={styles.languageToggle}>
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: baziForm.calendarType === "solar" }}
+                    onPress={() => setBaziForm((form) => ({ ...form, calendarType: "solar" }))}
+                    style={[
+                      styles.languageOption,
+                      baziForm.calendarType === "solar" && styles.languageOptionActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionText,
+                        baziForm.calendarType === "solar" && styles.languageOptionTextActive,
+                      ]}
+                    >
+                      {t("baziCalendarSolar")}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: baziForm.calendarType === "lunar" }}
+                    onPress={() => setBaziForm((form) => ({ ...form, calendarType: "lunar" }))}
+                    style={[
+                      styles.languageOption,
+                      baziForm.calendarType === "lunar" && styles.languageOptionActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionText,
+                        baziForm.calendarType === "lunar" && styles.languageOptionTextActive,
+                      ]}
+                    >
+                      {t("baziCalendarLunar")}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("birthDate")}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setBaziPickerMode("date")}
+                  style={styles.pickerButton}
+                >
+                  <Text style={baziForm.birthDate ? styles.pickerButtonText : styles.pickerPlaceholderText}>
+                    {baziForm.birthDate || t("birthDatePlaceholder")}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={17} color="#8d3f2d" />
+                </Pressable>
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("birthTime")}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setBaziPickerMode("time")}
+                  style={styles.pickerButton}
+                >
+                  <Text style={baziForm.birthTime ? styles.pickerButtonText : styles.pickerPlaceholderText}>
+                    {baziForm.birthTime || t("birthTimePlaceholder")}
+                  </Text>
+                  <Ionicons name="time-outline" size={17} color="#8d3f2d" />
+                </Pressable>
+              </View>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>{t("baziBirthCity")}</Text>
+                <TextInput
+                  value={baziForm.birthCity}
+                  onChangeText={(birthCity) => setBaziForm((form) => ({ ...form, birthCity }))}
+                  placeholder={t("baziBirthCityPlaceholder")}
+                  placeholderTextColor="#a18d73"
+                  style={styles.profileInput}
+                />
+              </View>
+            </View>
+            {baziPickerMode ? (
+              <DateTimePicker
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                mode={baziPickerMode}
+                onChange={handleBaziPickerChange}
+                value={baziPickerMode === "date" ? dateFromBaziValue() : timeFromBaziValue()}
+              />
+            ) : null}
+          </View>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={loading || streaming}
+            onPress={handleBaziSubmit}
+            style={[styles.settingsSaveButton, (loading || streaming) && styles.settingsSaveButtonDisabled]}
+          >
+            <Ionicons name="sparkles-outline" size={17} color="#ffffff" />
+            <Text style={styles.settingsSaveText}>{t("baziSubmit")}</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ExpoStatusBar style="dark" />
       <View style={styles.container}>
-        {activeScreen === "settings" ? renderSettingsScreen() : <View style={[styles.appFrame, showSidebar && styles.appFrameWide]}>
+        {activeScreen === "settings" ? renderSettingsScreen() : activeScreen === "bazi" ? renderBaziScreen() : <View style={[styles.appFrame, showSidebar && styles.appFrameWide]}>
           {showSidebar ? <View style={styles.sidebar}>{renderHistoryList()}</View> : null}
           <View style={styles.shell}>
           <View style={styles.header}>
@@ -1274,6 +1569,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
+  sidebarQuickActions: {
+    gap: 8,
+    marginBottom: 10,
+  },
+  sidebarQuickButton: {
+    alignItems: "center",
+    backgroundColor: "#fffaf3",
+    borderColor: "#e2d2bd",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  sidebarQuickButtonText: {
+    color: "#8d3f2d",
+    fontSize: 13,
+    fontWeight: "900",
+  },
   historyList: {
     flex: 1,
   },
@@ -1521,6 +1836,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 13,
   },
+  settingsSaveButtonDisabled: {
+    backgroundColor: "#bcae9b",
+  },
   settingsSaveText: {
     color: "#ffffff",
     fontSize: 15,
@@ -1536,6 +1854,9 @@ const styles = StyleSheet.create({
     gap: 9,
     paddingHorizontal: 10,
     paddingVertical: 10,
+  },
+  drawerMenuItemSpacing: {
+    marginTop: 8,
   },
   drawerMenuIcon: {
     alignItems: "center",
@@ -1557,6 +1878,11 @@ const styles = StyleSheet.create({
     color: "#7b6b57",
     fontSize: 11,
     marginTop: 2,
+  },
+  baziHint: {
+    color: "#7b6b57",
+    fontSize: 13,
+    lineHeight: 19,
   },
   profileForm: {
     gap: 9,
@@ -1580,6 +1906,27 @@ const styles = StyleSheet.create({
     minHeight: 38,
     paddingHorizontal: 10,
     paddingVertical: 8,
+  },
+  pickerButton: {
+    alignItems: "center",
+    backgroundColor: "#fffaf3",
+    borderColor: "#e2d2bd",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  pickerButtonText: {
+    color: "#2b261f",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  pickerPlaceholderText: {
+    color: "#a18d73",
+    fontSize: 13,
   },
   profileNotesInput: {
     maxHeight: 92,
