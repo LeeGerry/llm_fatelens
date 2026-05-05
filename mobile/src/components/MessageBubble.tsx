@@ -12,6 +12,7 @@ type Props = {
     replay: string;
     stop: string;
   };
+  autoPlayAudio?: boolean;
   labels: {
     audioFailed: string;
     audioPending: string;
@@ -22,7 +23,7 @@ type Props = {
   onRetryAudio?: (message: ChatMessage) => void;
 };
 
-export function MessageBubble({ audioLabels, labels, message, onRetryAudio }: Props) {
+export function MessageBubble({ audioLabels, autoPlayAudio, labels, message, onRetryAudio }: Props) {
   const isUser = message.role === "user";
   const canPlay = !isUser && message.audioStatus === "ready" && message.audioUrl;
   const toolsUsed = message.toolsUsed ?? [];
@@ -69,7 +70,13 @@ export function MessageBubble({ audioLabels, labels, message, onRetryAudio }: Pr
                 </Text>
               </>
             ) : null}
-            {canPlay ? <AudioPlayButton labels={audioLabels} url={message.audioUrl as string} /> : null}
+            {canPlay ? (
+              <AudioPlayButton
+                autoPlay={autoPlayAudio}
+                labels={audioLabels}
+                url={message.audioUrl as string}
+              />
+            ) : null}
           </View>
         )}
       </View>

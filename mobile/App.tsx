@@ -96,6 +96,7 @@ export default function App() {
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState<AppScreen>("chat");
+  const [autoPlayAudioId, setAutoPlayAudioId] = useState<string | null>(null);
   const [baziForm, setBaziForm] = useState<BaziForm>(emptyBaziForm);
   const [baziPickerMode, setBaziPickerMode] = useState<BaziPickerMode>(null);
   const [userProfile, setUserProfile] = useState<UserProfile>(emptyUserProfile);
@@ -327,6 +328,7 @@ export default function App() {
     }
 
     stopActiveAudio();
+    setAutoPlayAudioId(null);
     await setActiveChatSessionId(session.id);
     setSessionId(session.id);
     setBackendSessionId(session.backendSessionId);
@@ -343,6 +345,7 @@ export default function App() {
     }
 
     stopActiveAudio();
+    setAutoPlayAudioId(null);
     const nextSession = createChatSession(localizedStarterMessages);
     const nextSessions = [nextSession, ...chatSessions];
     await saveChatSessions(nextSessions);
@@ -363,6 +366,7 @@ export default function App() {
     }
 
     stopActiveAudio();
+    setAutoPlayAudioId(null);
     const nextSession = createChatSession(localizedStarterMessages);
     await clearAllChatSessions();
     await saveChatSessions([nextSession]);
@@ -383,6 +387,7 @@ export default function App() {
     }
 
     stopActiveAudio();
+    setAutoPlayAudioId(null);
     const nextSession = createChatSession(localizedStarterMessages);
     const nextSessions = [
       nextSession,
@@ -511,6 +516,9 @@ export default function App() {
       try {
         const status = await getAudioStatus(messageId);
         if (status.status === "ready") {
+          if (userProfile.autoPlayVoice) {
+            setAutoPlayAudioId(messageId);
+          }
           updateMessages(
             (current) =>
               current.map((message) =>
@@ -565,6 +573,9 @@ export default function App() {
         ),
       { persist: true },
     );
+    if (autoPlayAudioId === message.id) {
+      setAutoPlayAudioId(null);
+    }
 
     try {
       await retryAudio(message.id, message.text, message.mood ?? "default");
@@ -1371,6 +1382,7 @@ export default function App() {
                   replay: t("replayVoice"),
                   stop: t("stopVoice"),
                 }}
+                autoPlayAudio={autoPlayAudioId === message.id}
                 labels={{
                   audioFailed: t("audioFailed"),
                   audioPending: t("audioPending"),

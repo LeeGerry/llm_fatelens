@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text } from "react-native";
 import { setAudioModeAsync, setIsAudioActiveAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 
 type Props = {
+  autoPlay?: boolean;
   labels: {
     buffering: string;
     play: string;
@@ -57,8 +58,14 @@ export function stopActiveAudio() {
   }
 }
 
-export function AudioPlayButton({ labels, url }: Props) {
-  const [activated, setActivated] = useState(false);
+export function AudioPlayButton({ autoPlay, labels, url }: Props) {
+  const [activated, setActivated] = useState(Boolean(autoPlay));
+
+  useEffect(() => {
+    if (autoPlay) {
+      setActivated(true);
+    }
+  }, [autoPlay]);
 
   if (!activated) {
     return (
