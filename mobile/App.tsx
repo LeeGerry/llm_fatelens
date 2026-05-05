@@ -1113,18 +1113,6 @@ export default function App() {
                 trackColor={{ false: "#d8c8b3", true: "#d9a596" }}
               />
             </View>
-            <View style={styles.settingSwitchRow}>
-              <View style={styles.settingSwitchText}>
-                <Text style={styles.settingSwitchTitle}>{t("darkModeTitle")}</Text>
-                <Text style={styles.settingSwitchSubtitle}>{t("darkModeSubtitle")}</Text>
-              </View>
-              <Switch
-                value={userProfile.darkMode}
-                onValueChange={(darkMode) => setUserProfile((profile) => ({ ...profile, darkMode }))}
-                thumbColor={userProfile.darkMode ? "#8d3f2d" : "#f4eadc"}
-                trackColor={{ false: "#d8c8b3", true: "#d9a596" }}
-              />
-            </View>
           </View>
 
           <Pressable
@@ -1388,6 +1376,13 @@ export default function App() {
                   audioPending: t("audioPending"),
                   mood: t("moodLabel"),
                   retryAudio: t("retryAudio"),
+                  toolUnknown: t("toolUnknown"),
+                  tools: {
+                    bazi_cesuan: t("toolBazi"),
+                    get_local_knowledge: t("toolKnowledge"),
+                    search: t("toolSearch"),
+                    yaoyigua: t("toolYaogua"),
+                  },
                 }}
                 message={message}
                 onRetryAudio={handleRetryAudio}

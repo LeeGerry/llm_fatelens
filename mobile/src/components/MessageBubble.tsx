@@ -18,6 +18,8 @@ type Props = {
     audioPending: string;
     mood: string;
     retryAudio: string;
+    tools: Record<string, string>;
+    toolUnknown: string;
   };
   message: ChatMessage;
   onRetryAudio?: (message: ChatMessage) => void;
@@ -27,6 +29,7 @@ export function MessageBubble({ audioLabels, autoPlayAudio, labels, message, onR
   const isUser = message.role === "user";
   const canPlay = !isUser && message.audioStatus === "ready" && message.audioUrl;
   const toolsUsed = message.toolsUsed ?? [];
+  const getToolLabel = (tool: string) => labels.tools[tool] ?? labels.toolUnknown;
 
   return (
     <View style={[styles.row, isUser ? styles.userRow : styles.masterRow]}>
@@ -46,7 +49,7 @@ export function MessageBubble({ audioLabels, autoPlayAudio, labels, message, onR
             {toolsUsed.map((tool) => (
               <View key={tool} style={styles.toolTag}>
                 <Ionicons name="construct-outline" size={12} color="#8d3f2d" />
-                <Text style={styles.toolTagText}>{tool}</Text>
+                <Text style={styles.toolTagText}>{getToolLabel(tool)}</Text>
               </View>
             ))}
             {message.audioStatus === "pending" ? (
