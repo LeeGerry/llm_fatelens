@@ -13,7 +13,13 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.gerryli.digitalhumanmobile"
+      "package": "com.gerryli.digitalhumanmobile",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -22,6 +28,11 @@
     "plugins": [
       "expo-audio",
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a5230a09-7858-4a06-8c97-ede8db0e8369"
+      }
+    }
   }
 }
